@@ -1,0 +1,240 @@
+.TH RINODE 1 "September 2026" "rinode 0.1.0" "User Commands"
+.SH NAME
+rinode \- zero-copy deleted file tracking, metadata audit index, and instant restoration
+.SH SYNOPSIS
+.B rinode
+[\fICOMMAND\fR] [\fIOPTIONS\fR]
+.br
+.B rinode rm
+[\fB\-p\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
+.br
+.B rinode ls
+[\fB\-n\fR \fILIMIT\fR] [\fB\-a\fR|\fB\-\-all\fR]
+.br
+.B rinode restore
+[\fB\-k\fR|\fB\-\-keep\-vault\fR] [\fB\-f\fR|\fB\-\-force\fR] \fITARGET\fR
+.br
+.B rinode inspect
+\fIID\fR
+.br
+.B rinode purge
+[\fB\-d\fR \fIDAYS\fR] [\fB\-\-all\fR]
+.br
+.B rinode init
+[\fB\-\-alias\-rm\fR] \fISHELL\fR
+.br
+.B rinode exclude
+[\fIPATTERN\fR] [\fB\-l\fR|\fB\-\-list\fR] [\fB\-t\fR|\fB\-\-test\fR \fIPATH\fR] [\fB\-r\fR|\fB\-\-remove\fR \fIRULE\fR]
+.br
+.B rinode tui
+.SH DESCRIPTION
+\fBrinode\fR (recent-inode) is a high-performance deleted file manager and undelete tool for Linux.
+Unlike conventional trash mechanisms that perform slow byte-by-byte copies across directories,
+\fBrinode\fR leverages Linux VFS primitives (\fBrenameat2\fR, \fBstatx\fR with \fBSTATX_MNT_ID\fR, and \fBFICLONE\fR)
+to safely move deleted files and directories into a mount-local, permissions-locked vault in constant \fBO(1)\fR time.
+.PP
+Data blocks are never copied, and exact file attributes, permissions, timestamps, and inode identifiers are preserved.
+Restoring even multi-gigabyte files or deeply nested directory trees occurs instantaneously.
+.PP
+If invoked without arguments, \fBrinode\fR launches an interactive split-screen terminal user interface (TUI).
+.SH COMMANDS
+.TP
+.B tui
+Launch the interactive dual-pane terminal dashboard.
+Left pane displays a navigable table of preserved files; right pane renders full inode provenance.
+Press \fBEnter\fR on any entry to open the action menu (Restore, Reflink Fork, Inspect, Purge, Copy Path).
+Press \fBe\fR to open the active exclusion rules modal.
+Press \fB/\fR to search/filter the vault list.
+Press \fBq\fR or \fBEsc\fR to exit.
+.TP
+.B rm \fIPATH\fR...
+Safely delete one or more files or directory hierarchies by moving them into the mount's vault and indexing their metadata.
+Supports standard POSIX \fBrm\fR flags for transparent shell aliasing.
+.TP
+.B ls
+Display a formatted table of all currently active (preserved) entries in the vault, including entry ID, name, size, deletion timestamp, and original path.
+.TP
+.B restore \fITARGET\fR
+Restore a preserved entry to its original filesystem location.
+\fITARGET\fR can be a numeric entry ID or a filename.
+Missing parent directories along the path are automatically recreated (\fBmkdir -p\fR).
+.TP
+.B inspect \fIID\fR
+Display comprehensive audit metadata for an entry: inode number, filesystem device/mount ID, octal permissions, owner UID/GID, fast 64KB content fingerprint, deletion timestamp, and vault storage path.
+.TP
+.B purge
+Permanently destroy expired files in the vault to reclaim disk storage.
+.TP
+.B init \fISHELL\fR
+Generate shell integration code for \fBfish\fR, \fBbash\fR, or \fBzsh\fR.
+Configures the \fBr\fR shortcut and optionally aliases \fBrm\fR when invoked with \fB\-\-alias\-rm\fR.
+.TP
+.B exclude [\fIPATTERN\fR]
+Manage or test pattern and directory exclusions.
+If called without arguments, launches an interactive terminal prompt menu.
+If a \fIPATTERN\fR is specified (e.g. \fI*.log\fR or \fInode_modules\fR), it is automatically classified and added to your configuration file.
+.SH OPTIONS
+.SS "Options for rm"
+.TP
+.BR \-p ", " \-\-permanent
+Permanently unlink the target without moving it into the vault.
+.TP
+.BR \-f ", " \-\-force
+Ignore nonexistent target paths without printing diagnostic warnings.
+.TP
+.BR \-r ", " \-R ", " \-\-recursive
+Recursively delete directories and their subtrees (POSIX compatibility; rinode vaults entire directory trees in atomic O(1) time).
+.TP
+.BR \-v ", " \-\-verbose
+Print explanation of each vaulted file.
+.TP
+.BR \-i ", " \-\-interactive
+Prompt before every removal (POSIX compatibility).
+.TP
+.BR \-d ", " \-\-dir
+Remove empty directories (POSIX compatibility).
+.SS "Options for ls"
+.TP
+.BR \-n ", " \-\-limit " \fIN\fR"
+Limit output to \fIN\fR most recent entries (default: 20).
+.TP
+.BR \-a ", " \-\-all
+Display all historical entries, including those already restored or purged.
+.SS "Options for restore"
+.TP
+.BR \-k ", " \-\-keep\-vault
+Snapshot Fork mode. On filesystems supporting copy-on-write (btrfs, XFS), issues an \fBioctl(FICLONE)\fR reflink
+to yield an independent copy with zero data duplication. On ext4, creates a kernel-level copy.
+The file remains preserved in the vault.
+.TP
+.BR \-f ", " \-\-force
+Overwrite existing files or directories if the destination path already exists.
+.SS "Options for purge"
+.TP
+.BR \-d ", " \-\-days " \fIDAYS\fR"
+Purge entries deleted more than \fIDAYS\fR ago (default: configured retention days, typically 14).
+.TP
+.B \-\-all
+Force permanent deletion of all preserved files in the vault.
+.SS "Options for init"
+.TP
+.B \-\-alias\-rm
+Include shell alias or wrapper replacing standard \fBrm\fR with \fBrinode rm\fR.
+.SS "Options for exclude"
+.TP
+.BR \-l ", " \-\-list
+List all currently active exclusion rules grouped by category (system paths, path patterns, filename patterns).
+.TP
+.BR \-t ", " \-\-test " \fIPATH\fR"
+Test a candidate path against current exclusion filters without deleting anything (dry-run check).
+.TP
+.BR \-r ", " \-\-remove " \fIRULE\fR"
+Remove an existing exclusion rule by its pattern text or numbered index.
+.SH CONFIGURATION
+Configuration files are searched in the following precedence:
+.IP 1. 3
+\fI./rinode.toml\fR (Current working directory)
+.IP 2. 3
+\fI$XDG_CONFIG_HOME/rinode/config.toml\fR or \fI~/.config/rinode/config.toml\fR
+.IP 3. 3
+\fI/etc/rinode/config.toml\fR
+.PP
+Example configuration:
+.PP
+.RS
+.nf
+[storage]
+retention_days = 14
+max_vault_size_gb = 20
+max_hash_file_size_mb = 50
+
+[exclusions]
+system_paths = [
+    "/proc", "/sys", "/dev", "/run", "/tmp"
+]
+path_regex = [
+    ".*/node_modules/.*",
+    ".*/\\\\.git/(?!config|HEAD).*",
+    ".*/target/(debug|release)/.*"
+]
+filename_regex = [
+    "^\\\\..*\\\\.swp$",
+    ".*~$"
+]
+.fi
+.RE
+.SH SHELL INTEGRATION
+To enable shell integration, add the corresponding eval line to your shell configuration:
+.TP
+.B Fish (~/.config/fish/config.fish):
+rinode init fish | source
+.TP
+.B Bash (~/.bashrc):
+eval "$(rinode init bash)"
+.TP
+.B Zsh (~/.zshrc):
+eval "$(rinode init zsh)"
+.PP
+To also alias \fBrm\fR to \fBrinode rm\fR, append \fB\-\-alias\-rm\fR to the init command:
+.IP
+rinode init fish --alias-rm | source
+.SH FILESYSTEM AGNOSTICISM & ZERO-COPY GUARANTEES
+.TP
+.B ext4
+Preserves files using atomic \fBrenameat2(2)\fR within local mount-point vaults, retaining the exact inode number and preventing extent tree deallocation.
+.TP
+.B btrfs
+Detects individual subvolume roots via \fBstatx(STATX_MNT_ID)\fR to prevent \fBEXDEV\fR cross-subvolume link errors.
+Snapshot restore leverages copy-on-write (\fBFICLONE\fR) across subvolumes.
+.TP
+.B XFS
+Supports instant directory and file moves, with full CoW cloning support on v5 filesystems.
+.SH EXAMPLES
+.TP
+Safely delete a large ISO image or project directory:
+.B rinode rm linux-kernel.iso my-project/
+.TP
+Safely delete with standard POSIX flags:
+.B rinode rm -rf ./build_output/
+.TP
+List all recently deleted files:
+.B rinode ls
+.TP
+Launch the interactive terminal dashboard:
+.B rinode
+.TP
+Restore entry #42 to its original location:
+.B rinode restore 42
+.TP
+Restore a file by name, overwriting existing file if present:
+.B rinode restore --force document.pdf
+.TP
+Restore an independent copy while retaining the snapshot in vault:
+.B rinode restore --keep-vault 42
+.TP
+Test whether a path matches exclusion rules:
+.B rinode exclude --test /home/user/project/node_modules/package.json
+.TP
+Add an exclusion rule for all log files:
+.B rinode exclude "*.log"
+.TP
+List active exclusion filters:
+.B rinode exclude --list
+.TP
+View detailed inode provenance and 64KB content fingerprint:
+.B rinode inspect 42
+.TP
+Purge vault items older than 7 days:
+.B rinode purge --days 7
+.SH FILES
+.TP
+.I ~/.local/share/recent-inode/rinode.db
+SQLite database recording file provenance, inode numbers, and timestamps.
+.TP
+.I <mount_root>/.rinode-vault/
+Secure directory (permissions 0700) where vaulted inodes are stored on each respective mount.
+.SH SEE ALSO
+.BR rm (1),
+.BR statx (2),
+.BR renameat2 (2),
+.BR ioctl_ficlone (2)

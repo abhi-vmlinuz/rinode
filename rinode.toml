@@ -1,0 +1,29 @@
+[storage]
+retention_days = 14
+max_vault_size_gb = 20
+max_hash_file_size_mb = 50
+
+[exclusions]
+system_paths = [
+    "/proc",
+    "/sys",
+    "/dev",
+    "/run",
+    "/tmp",
+]
+
+path_regex = [
+    ".*/node_modules/.*",
+    ".*/\\.git/(?!config|HEAD).*",
+    ".*/target/(debug|release)/.*",
+    ".*/build/.*",
+    ".*/\\.cache/.*",
+    ".*/__pycache__/.*",
+]
+
+filename_regex = [
+    "^\\..*\\.swp$",
+    ".*~$",
+    ".*\\.tmp$",
+    "^core(\\.\\d+)?$",
+]

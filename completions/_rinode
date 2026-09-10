@@ -1,0 +1,77 @@
+#compdef rinode r
+
+_rinode() {
+    local -a commands
+    commands=(
+        'rm:Safely delete files or directories by moving them into the vault'
+        'ls:List recently deleted files'
+        'restore:Restore a deleted file or directory'
+        'inspect:Inspect detailed metadata of an entry'
+        'purge:Purge expired files from the vault'
+        'tui:Launch interactive terminal dashboard'
+        'init:Generate shell integration script'
+        'exclude:Manage or test pattern and directory exclusions'
+        'help:Print help information'
+    )
+
+    _arguments -C \
+        '(-h --help)'{-h,--help}'[Print help]' \
+        '(-V --version)'{-V,--version}'[Print version]' \
+        '1: :->cmd' \
+        '*:: :->args'
+
+    case $state in
+        cmd)
+            _describe -t commands 'rinode command' commands
+            ;;
+        args)
+            case $words[1] in
+                rm)
+                    _arguments \
+                        '(-p --permanent)'{-p,--permanent}'[Permanently delete without vaulting]' \
+                        '(-f --force)'{-f,--force}'[Force deletion without warnings]' \
+                        '(-r -R --recursive)'{-r,-R,--recursive}'[Remove directories recursively]' \
+                        '(-v --verbose)'{-v,--verbose}'[Explain what is being done]' \
+                        '(-i --interactive)'{-i,--interactive}'[Prompt before removal]' \
+                        '(-d --dir)'{-d,--dir}'[Remove empty directories]' \
+                        '*:file:_files'
+                    ;;
+                ls)
+                    _arguments \
+                        '(-n --limit)'{-n,--limit}'[Maximum entries to display]:limit:' \
+                        '(-a --all)'{-a,--all}'[Show all entries]'
+                    ;;
+                restore)
+                    _arguments \
+                        '(-k --keep-vault)'{-k,--keep-vault}'[Snapshot fork mode via CoW/Reflink]' \
+                        '(-f --force)'{-f,--force}'[Overwrite if destination exists]' \
+                        '1:target:_files'
+                    ;;
+                inspect)
+                    _arguments \
+                        '1:id:'
+                    ;;
+                purge)
+                    _arguments \
+                        '(-d --days)'{-d,--days}'[Purge entries older than N days]:days:' \
+                        '--all[Force purge all entries]'
+                    ;;
+                init)
+                    _arguments \
+                        '--alias-rm[Also alias rm to rinode rm]' \
+                        '1:shell:(fish bash zsh)'
+                    ;;
+                exclude)
+                    _arguments \
+                        '(-l --list)'{-l,--list}'[List all active exclusion rules]' \
+                        '(-t --test)'{-t,--test}'[Dry-run test path against exclusions]:path:_files' \
+                        '(-r --remove)'{-r,--remove}'[Remove an exclusion rule]:rule:' \
+                        '*:path:_files'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_rinode "$@"
+
