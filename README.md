@@ -1,5 +1,18 @@
 # rinode
 
+<p align="center">
+  <strong>Zero-copy deleted file tracking and instant restoration for Linux.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/abhi-vmlinuz/rinode/releases"><img src="https://img.shields.io/github/v/release/abhi-vmlinuz/rinode?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.75+-orange?style=flat-square&logo=rust" alt="Rust Version"></a>
+  <a href="https://kernel.org"><img src="https://img.shields.io/badge/Linux_Kernel-5.8+-007ACC?style=flat-square&logo=linux" alt="Kernel Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
+</p>
+
+---
+
 `rinode` (recent-inode) is a Linux utility that preserves deleted files and directories in constant time without copying data blocks, allowing instant restoration.
 
 ## Problem
