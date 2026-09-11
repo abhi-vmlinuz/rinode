@@ -8,7 +8,7 @@ ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
 CARGO ?= cargo
 
-.PHONY: all build release install install-user uninstall test clean
+.PHONY: all build release install install-user uninstall test clean whitepaper
 
 all: build
 
@@ -96,3 +96,7 @@ test: build
 
 clean:
 	$(CARGO) clean
+
+whitepaper:
+	pdflatex -interaction=nonstopmode -output-directory=docs docs/whitepaper.tex
+	pdflatex -interaction=nonstopmode -output-directory=docs docs/whitepaper.tex

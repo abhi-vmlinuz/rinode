@@ -33,6 +33,18 @@ Standard Linux deletion tools have two main drawbacks:
    - **Move back (default)**: Recreates any missing parent directories (`mkdir -p`) and moves the inode back to its original location via `rename()`.
    - **Snapshot fork (`--keep-vault`)**: On filesystems that support Copy-on-Write (Btrfs, XFS), it issues an `ioctl(FICLONE)` system call to point a new directory entry to the existing data blocks with zero duplication. On ext4, it copies the file.
 
+### Technical Whitepaper
+
+For an in-depth systems document analyzing the Linux inode lifecycle, extent tree deallocation, VFS link count semantics, and atomic directory transaction flows:
+
+- **[rinode Architecture & VFS Semantics Whitepaper (PDF)](docs/whitepaper.pdf)**
+- **[LaTeX Source](docs/whitepaper.tex)**
+
+Compile the paper directly from source:
+```bash
+make whitepaper
+```
+
 ## Installation
 
 Requirements:
