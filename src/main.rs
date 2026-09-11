@@ -109,7 +109,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Ls { limit, all, ids } => {
-            let entries = db.list_active(if all { None } else { Some(limit) })?;
+            let entries = if all {
+                db.list_all(None)?
+            } else {
+                db.list_active(Some(limit))?
+            };
 
             if ids {
                 for entry in entries {
@@ -119,22 +123,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if entries.is_empty() {
-                println!("No preserved files found in the vault.");
+                println!("No entries found in the vault.");
                 return Ok(());
             }
 
             let mut table = Table::new();
             table
                 .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS)
-                .set_header(vec![
-                    Cell::new("ID").fg(Color::Cyan),
-                    Cell::new("Name").fg(Color::Green),
-                    Cell::new("Size").fg(Color::Yellow),
-                    Cell::new("Deleted At").fg(Color::Magenta),
-                    Cell::new("Inode").fg(Color::Blue),
-                    Cell::new("Original Path"),
-                ]);
+                .apply_modifier(UTF8_ROUND_CORNERS);
+
+            let mut headers = vec![
+                Cell::new("ID").fg(Color::Cyan),
+                Cell::new("Name").fg(Color::Green),
+                Cell::new("Size").fg(Color::Yellow),
+                Cell::new("Deleted At").fg(Color::Magenta),
+                Cell::new("Inode").fg(Color::Blue),
+            ];
+            if all {
+                headers.push(Cell::new("Status").fg(Color::White));
+            }
+            headers.push(Cell::new("Original Path"));
+            table.set_header(headers);
 
             for entry in entries {
                 let formatted_date = entry.deleted_at.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -146,14 +155,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format_bytes(entry.file_size)
                 };
 
-                table.add_row(Row::from(vec![
+                let mut row_cells = vec![
                     Cell::new(entry.id.to_string()).fg(Color::Cyan),
                     Cell::new(entry.filename).fg(Color::Green),
                     Cell::new(display_size).fg(Color::Yellow),
                     Cell::new(formatted_date),
                     Cell::new(entry.inode_no.to_string()),
-                    Cell::new(entry.original_path),
-                ]));
+                ];
+                if all {
+                    let status_cell = match entry.status.as_str() {
+                        "PRESERVED" => Cell::new("PRESERVED").fg(Color::Green),
+                        "RESTORED" => Cell::new("RESTORED").fg(Color::Cyan),
+                        "PURGED" => Cell::new("PURGED").fg(Color::Red),
+                        _ => Cell::new(&entry.status),
+                    };
+                    row_cells.push(status_cell);
+                }
+                row_cells.push(Cell::new(entry.original_path));
+                table.add_row(Row::from(row_cells));
             }
 
             println!("{table}");

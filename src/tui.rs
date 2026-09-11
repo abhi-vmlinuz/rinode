@@ -28,6 +28,12 @@ enum ViewMode {
     ExclusionModal,
 }
 
+#[derive(PartialEq, Copy, Clone)]
+enum ActivePane {
+    Preserved,
+    Restored,
+}
+
 pub fn run_tui(db: &Db, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -89,11 +95,17 @@ fn main_loop<B: ratatui::backend::Backend>(
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut entries = db.list_active(None)?;
+    let mut restored_entries = db.list_restored(None)?;
     let mut table_state = TableState::default();
     if !entries.is_empty() {
         table_state.select(Some(0));
     }
+    let mut restored_table_state = TableState::default();
+    if !restored_entries.is_empty() {
+        restored_table_state.select(Some(0));
+    }
 
+    let mut active_pane = ActivePane::Preserved;
     let mut view_mode = ViewMode::Browsing;
     let mut action_index: usize = 0;
     let mut status_message: Option<String> = None;
@@ -119,8 +131,13 @@ fn main_loop<B: ratatui::backend::Backend>(
                 Span::styled("rinode live  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("[{}]  ", time_str), Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("{} preserved files", entries.len()),
+                    format!("{} preserved", entries.len()),
                     Style::default().fg(Color::Gray),
+                ),
+                Span::styled("  |  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} restored", restored_entries.len()),
+                    Style::default().fg(Color::LightGreen),
                 ),
             ]);
             let header_border = Line::from(Span::styled(
@@ -130,22 +147,35 @@ fn main_loop<B: ratatui::backend::Backend>(
             let header_widget = Paragraph::new(vec![header_line, header_border]);
             f.render_widget(header_widget, root_chunks[0]);
 
-            // 2. CENTER SPLIT (LHS: Table, RHS: Details)
+            // 2. CENTER SPLIT (LHS: Table, RHS: Details & Restore History)
             let center_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
                 .split(root_chunks[1]);
 
             // LHS Table
             let selected_idx = table_state.selected().unwrap_or(0);
+            let restored_selected_idx = restored_table_state.selected().unwrap_or(0);
+
             let header_cells = ["ID", "NAME", "SIZE", "DELETED AT", "INODE"]
                 .iter()
-                .map(|h| Span::styled(*h, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+                .map(|h| {
+                    let color = if active_pane == ActivePane::Preserved {
+                        Color::Cyan
+                    } else {
+                        Color::DarkGray
+                    };
+                    Span::styled(*h, Style::default().fg(color).add_modifier(Modifier::BOLD))
+                });
             let table_header = Row::new(header_cells).height(1).bottom_margin(1);
 
             let rows = entries.iter().enumerate().map(|(i, entry)| {
                 let is_selected = i == selected_idx;
-                let prefix = if is_selected { "▶ " } else { "  " };
+                let prefix = if is_selected {
+                    if active_pane == ActivePane::Preserved { "▶ " } else { "▷ " }
+                } else {
+                    "  "
+                };
 
                 let size_text = if entry.is_directory {
                     "<DIR>".to_string()
@@ -158,10 +188,12 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let name_display = format!("{}{}", prefix, entry.filename);
                 let date_text = entry.deleted_at.format("%Y-%m-%d %H:%M").to_string();
 
-                let style = if is_selected {
+                let style = if is_selected && active_pane == ActivePane::Preserved {
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                } else {
+                } else if is_selected {
                     Style::default().fg(Color::White)
+                } else {
+                    Style::default().fg(Color::Gray)
                 };
 
                 Row::new(vec![
@@ -178,8 +210,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                 [
                     Constraint::Length(5),
                     Constraint::Percentage(40),
-                    Constraint::Length(12),
-                    Constraint::Length(18),
+                    Constraint::Length(10),
+                    Constraint::Length(17),
                     Constraint::Min(8),
                 ],
             )
@@ -188,12 +220,30 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             f.render_widget(table, center_chunks[0]);
 
-            // RHS Details Pane
+            // RHS Vertical Split: Top Details, Bottom Restore History
+            let details_height = if root_chunks[1].height > 25 {
+                15
+            } else {
+                (root_chunks[1].height / 2).max(8)
+            };
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(details_height),
+                    Constraint::Min(6),
+                ])
+                .split(center_chunks[1]);
+
+            let (current_entry, is_restored_view) = match active_pane {
+                ActivePane::Preserved => (entries.get(selected_idx), false),
+                ActivePane::Restored => (restored_entries.get(restored_selected_idx), true),
+            };
+
             let details_block = Block::default()
                 .borders(Borders::LEFT)
                 .border_style(Style::default().fg(Color::DarkGray));
 
-            if let Some(entry) = entries.get(selected_idx) {
+            if let Some(entry) = current_entry {
                 let file_type = if entry.is_directory {
                     "DIR"
                 } else if entry.link_type == "SYMLINK" {
@@ -202,10 +252,21 @@ fn main_loop<B: ratatui::backend::Backend>(
                     "FILE"
                 };
 
+                let title_text = if is_restored_view {
+                    "ENTRY DETAILS (RESTORED)"
+                } else {
+                    "ENTRY DETAILS"
+                };
+                let title_color = if is_restored_view {
+                    Color::Green
+                } else {
+                    Color::Yellow
+                };
+
                 let mut details_lines = vec![
                     Line::from(Span::styled(
-                        "ENTRY DETAILS",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        title_text,
+                        Style::default().fg(title_color).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(vec![
                         Span::styled("• ", Style::default().fg(Color::Cyan)),
@@ -247,11 +308,19 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Span::styled("Deleted:     ", Style::default().fg(Color::LightBlue)),
                         Span::styled(entry.deleted_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::White)),
                     ]),
-                    Line::from(vec![
-                        Span::styled("Status:      ", Style::default().fg(Color::LightBlue)),
-                        Span::styled(&entry.status, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    ]),
                 ];
+
+                if let Some(restored_at) = entry.restored_at {
+                    details_lines.push(Line::from(vec![
+                        Span::styled("Restored:    ", Style::default().fg(Color::LightBlue)),
+                        Span::styled(restored_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::Green)),
+                    ]));
+                }
+
+                details_lines.push(Line::from(vec![
+                    Span::styled("Status:      ", Style::default().fg(Color::LightBlue)),
+                    Span::styled(&entry.status, Style::default().fg(if is_restored_view { Color::Cyan } else { Color::Green }).add_modifier(Modifier::BOLD)),
+                ]));
 
                 if let Some(target) = &entry.symlink_target {
                     details_lines.push(Line::from(vec![
@@ -274,10 +343,95 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ]));
 
                 let details_para = Paragraph::new(details_lines).block(details_block);
-                f.render_widget(details_para, center_chunks[1]);
+                f.render_widget(details_para, right_chunks[0]);
             } else {
-                let empty_para = Paragraph::new("No files in vault.").block(details_block);
-                f.render_widget(empty_para, center_chunks[1]);
+                let empty_para = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled("  No file selected.", Style::default().fg(Color::DarkGray))),
+                ]).block(details_block);
+                f.render_widget(empty_para, right_chunks[0]);
+            }
+
+            // Bottom Right Pane: RESTORE HISTORY
+            let history_border_color = if active_pane == ActivePane::Restored {
+                Color::Cyan
+            } else {
+                Color::DarkGray
+            };
+            let history_title_color = if active_pane == ActivePane::Restored {
+                Color::Cyan
+            } else {
+                Color::Green
+            };
+
+            let history_block = Block::default()
+                .borders(Borders::LEFT | Borders::TOP)
+                .border_style(Style::default().fg(history_border_color))
+                .title(Span::styled(
+                    format!(" RESTORE HISTORY ({}) ", restored_entries.len()),
+                    Style::default().fg(history_title_color).add_modifier(Modifier::BOLD),
+                ));
+
+            if restored_entries.is_empty() {
+                let empty_para = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled("  No restored files in history.", Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled("  Files restored with [r] will appear here.", Style::default().fg(Color::DarkGray))),
+                ])
+                .block(history_block);
+                f.render_widget(empty_para, right_chunks[1]);
+            } else {
+                let history_header = Row::new(["ID", "NAME", "INODE", "RESTORED"].iter().map(|h| {
+                    Span::styled(
+                        *h,
+                        Style::default()
+                            .fg(if active_pane == ActivePane::Restored { Color::Cyan } else { Color::DarkGray })
+                            .add_modifier(Modifier::BOLD),
+                    )
+                })).height(1);
+
+                let history_rows = restored_entries.iter().enumerate().map(|(i, entry)| {
+                    let is_sel = i == restored_selected_idx;
+                    let prefix = if is_sel {
+                        if active_pane == ActivePane::Restored { "▶ " } else { "▷ " }
+                    } else {
+                        "  "
+                    };
+                    let style = if is_sel && active_pane == ActivePane::Restored {
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else if is_sel {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    };
+
+                    let time_str = entry.restored_at
+                        .map(|dt| dt.format("%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| entry.deleted_at.format("%m-%d %H:%M").to_string());
+
+                    let name_display = format!("{}{}", prefix, entry.filename);
+
+                    Row::new(vec![
+                        Span::styled(entry.id.to_string(), style),
+                        Span::styled(name_display, style),
+                        Span::styled(entry.inode_no.to_string(), style),
+                        Span::styled(time_str, style),
+                    ])
+                });
+
+                let history_table = Table::new(
+                    history_rows,
+                    [
+                        Constraint::Length(4),
+                        Constraint::Percentage(45),
+                        Constraint::Length(10),
+                        Constraint::Min(11),
+                    ],
+                )
+                .header(history_header)
+                .block(history_block);
+
+                f.render_widget(history_table, right_chunks[1]);
             }
 
             // 3. BOTTOM FOOTER
@@ -293,15 +447,29 @@ fn main_loop<B: ratatui::backend::Backend>(
             };
 
             let footer_nav = match view_mode {
-                ViewMode::Browsing => Line::from(vec![
-                    Span::styled("[↑/↓/j/k] Navigate  ", Style::default().fg(Color::LightCyan)),
-                    Span::styled("|  [Enter] Menu  ", Style::default().fg(Color::White)),
-                    Span::styled("|  [r] Restore  ", Style::default().fg(Color::White)),
-                    Span::styled("|  [x] Purge  ", Style::default().fg(Color::White)),
-                    Span::styled("|  [e] Rules  ", Style::default().fg(Color::Cyan)),
-                    Span::styled("|  [q] Quit", Style::default().fg(Color::Gray)),
-                    status_span,
-                ]),
+                ViewMode::Browsing => {
+                    if active_pane == ActivePane::Preserved {
+                        Line::from(vec![
+                            Span::styled("[Tab/l] History Pane  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [Enter] Menu  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [r] Restore  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [x] Purge  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::Cyan)),
+                            Span::styled("|  [q] Quit", Style::default().fg(Color::Gray)),
+                            status_span,
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::styled("[Tab/h] Preserved Pane  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [Enter] Inspect  ", Style::default().fg(Color::White)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::Cyan)),
+                            Span::styled("|  [q] Quit", Style::default().fg(Color::Gray)),
+                            status_span,
+                        ])
+                    }
+                }
                 ViewMode::ActionMenu => Line::from(vec![
                     Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(Color::LightCyan)),
                     Span::styled("|  [Enter] Execute  ", Style::default().fg(Color::White)),
@@ -367,7 +535,11 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             // 5. INSPECT MODAL
             if view_mode == ViewMode::InspectModal {
-                if let Some(entry) = entries.get(selected_idx) {
+                let current_inspected = match active_pane {
+                    ActivePane::Preserved => entries.get(selected_idx),
+                    ActivePane::Restored => restored_entries.get(restored_selected_idx),
+                };
+                if let Some(entry) = current_inspected {
                     let popup_area = centered_rect(65, 60, size);
                     f.render_widget(Clear, popup_area);
 
@@ -377,7 +549,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Cyan));
 
-                    let inspect_lines = vec![
+                    let mut inspect_lines = vec![
                         Line::from(""),
                         Line::from(format!("  Database ID:        {}", entry.id)),
                         Line::from(format!("  Filename:           {}", entry.filename)),
@@ -390,11 +562,16 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Line::from(format!("  Link/Move Type:     {}", entry.link_type)),
                         Line::from(format!("  Vault Status:       {}", entry.status)),
                         Line::from(format!("  Deletion Time:      {}", entry.deleted_at.to_rfc3339())),
-                        Line::from(format!("  Fast Fingerprint:   {}", entry.quick_fingerprint.as_deref().unwrap_or("none"))),
-                        Line::from(format!("  Vault File Path:    {}", entry.vault_path)),
-                        Line::from(""),
-                        Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan))),
                     ];
+
+                    if let Some(restored_at) = entry.restored_at {
+                        inspect_lines.push(Line::from(format!("  Restoration Time:   {}", restored_at.to_rfc3339())));
+                    }
+
+                    inspect_lines.push(Line::from(format!("  Fast Fingerprint:   {}", entry.quick_fingerprint.as_deref().unwrap_or("none"))));
+                    inspect_lines.push(Line::from(format!("  Vault File Path:    {}", entry.vault_path)));
+                    inspect_lines.push(Line::from(""));
+                    inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan))));
 
                     let inspect_widget = Paragraph::new(inspect_lines).block(modal_block);
                     f.render_widget(inspect_widget, popup_area);
@@ -450,65 +627,141 @@ fn main_loop<B: ratatui::backend::Backend>(
                 match view_mode {
                     ViewMode::Browsing => match key.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            if !entries.is_empty() {
-                                let curr = table_state.selected().unwrap_or(0);
-                                let next = (curr + 1).min(entries.len() - 1);
-                                table_state.select(Some(next));
+                        KeyCode::Tab | KeyCode::BackTab => {
+                            if active_pane == ActivePane::Preserved {
+                                if !restored_entries.is_empty() {
+                                    active_pane = ActivePane::Restored;
+                                    if restored_table_state.selected().is_none() {
+                                        restored_table_state.select(Some(0));
+                                    }
+                                    status_message = None;
+                                } else {
+                                    status_message = Some("No restored files in history yet".into());
+                                }
+                            } else {
+                                active_pane = ActivePane::Preserved;
                                 status_message = None;
+                            }
+                        }
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            if active_pane == ActivePane::Preserved {
+                                if !restored_entries.is_empty() {
+                                    active_pane = ActivePane::Restored;
+                                    if restored_table_state.selected().is_none() {
+                                        restored_table_state.select(Some(0));
+                                    }
+                                    status_message = None;
+                                } else {
+                                    status_message = Some("No restored files in history yet".into());
+                                }
+                            }
+                        }
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            if active_pane == ActivePane::Restored {
+                                active_pane = ActivePane::Preserved;
+                                status_message = None;
+                            }
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        let curr = table_state.selected().unwrap_or(0);
+                                        let next = (curr + 1).min(entries.len() - 1);
+                                        table_state.select(Some(next));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::Restored => {
+                                    if !restored_entries.is_empty() {
+                                        let curr = restored_table_state.selected().unwrap_or(0);
+                                        let next = (curr + 1).min(restored_entries.len() - 1);
+                                        restored_table_state.select(Some(next));
+                                        status_message = None;
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            if !entries.is_empty() {
-                                let curr = table_state.selected().unwrap_or(0);
-                                let prev = curr.saturating_sub(1);
-                                table_state.select(Some(prev));
-                                status_message = None;
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        let curr = table_state.selected().unwrap_or(0);
+                                        let prev = curr.saturating_sub(1);
+                                        table_state.select(Some(prev));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::Restored => {
+                                    if !restored_entries.is_empty() {
+                                        let curr = restored_table_state.selected().unwrap_or(0);
+                                        let prev = curr.saturating_sub(1);
+                                        restored_table_state.select(Some(prev));
+                                        status_message = None;
+                                    }
+                                }
                             }
                         }
                         KeyCode::Enter => {
-                            if !entries.is_empty() {
-                                view_mode = ViewMode::ActionMenu;
-                                action_index = 0;
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        view_mode = ViewMode::ActionMenu;
+                                        action_index = 0;
+                                    }
+                                }
+                                ActivePane::Restored => {
+                                    if !restored_entries.is_empty() {
+                                        view_mode = ViewMode::InspectModal;
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('r') => {
-                            // Quick restore
-                            if let Some(idx) = table_state.selected() {
-                                if let Some(entry) = entries.get(idx) {
-                                    let restore_mgr = RestoreManager::new(db);
-                                    match restore_mgr.restore_entry(entry, false, false) {
-                                        Ok(_) => {
-                                            status_message = Some(format!("Restored '{}'", entry.filename));
-                                            entries = db.list_active(None)?;
-                                            if idx >= entries.len() && !entries.is_empty() {
-                                                table_state.select(Some(entries.len() - 1));
+                            // Quick restore (applies to Preserved pane)
+                            if active_pane == ActivePane::Preserved {
+                                if let Some(idx) = table_state.selected() {
+                                    if let Some(entry) = entries.get(idx) {
+                                        let restore_mgr = RestoreManager::new(db);
+                                        match restore_mgr.restore_entry(entry, false, false) {
+                                            Ok(_) => {
+                                                status_message = Some(format!("Restored '{}' to original path", entry.filename));
+                                                entries = db.list_active(None)?;
+                                                restored_entries = db.list_restored(None)?;
+                                                if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
+                                                    restored_table_state.select(Some(0));
+                                                }
+                                                if idx >= entries.len() && !entries.is_empty() {
+                                                    table_state.select(Some(entries.len() - 1));
+                                                }
                                             }
-                                        }
-                                        Err(e) => {
-                                            status_message = Some(format!("Restore error: {}", e));
+                                            Err(e) => {
+                                                status_message = Some(format!("Restore error: {}", e));
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         KeyCode::Char('x') => {
-                            // Quick purge
-                            if let Some(idx) = table_state.selected() {
-                                if let Some(entry) = entries.get(idx) {
-                                    let vault_path = Path::new(&entry.vault_path);
-                                    if vault_path.exists() {
-                                        if entry.is_directory {
-                                            std::fs::remove_dir_all(vault_path).ok();
-                                        } else {
-                                            std::fs::remove_file(vault_path).ok();
+                            // Quick purge (applies to Preserved pane)
+                            if active_pane == ActivePane::Preserved {
+                                if let Some(idx) = table_state.selected() {
+                                    if let Some(entry) = entries.get(idx) {
+                                        let vault_path = Path::new(&entry.vault_path);
+                                        if vault_path.exists() {
+                                            if entry.is_directory {
+                                                std::fs::remove_dir_all(vault_path).ok();
+                                            } else {
+                                                std::fs::remove_file(vault_path).ok();
+                                            }
                                         }
-                                    }
-                                    db.mark_purged(entry.id).ok();
-                                    status_message = Some(format!("Purged '{}'", entry.filename));
-                                    entries = db.list_active(None)?;
-                                    if idx >= entries.len() && !entries.is_empty() {
-                                        table_state.select(Some(entries.len() - 1));
+                                        db.mark_purged(entry.id).ok();
+                                        status_message = Some(format!("Purged '{}'", entry.filename));
+                                        entries = db.list_active(None)?;
+                                        if idx >= entries.len() && !entries.is_empty() {
+                                            table_state.select(Some(entries.len() - 1));
+                                        }
                                     }
                                 }
                             }
@@ -531,26 +784,26 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('1') => {
                             action_index = 0;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('2') => {
                             action_index = 1;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('3') => {
                             action_index = 2;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('4') => {
                             action_index = 3;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('5') => {
                             action_index = 4;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Enter => {
-                            execute_action(action_index, &mut entries, &mut table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
                         }
                         _ => {}
                     },
@@ -580,6 +833,8 @@ fn execute_action(
     action_idx: usize,
     entries: &mut Vec<EntryRecord>,
     table_state: &mut TableState,
+    restored_entries: &mut Vec<EntryRecord>,
+    restored_table_state: &mut TableState,
     view_mode: &mut ViewMode,
     status_message: &mut Option<String>,
     db: &Db,
@@ -599,8 +854,12 @@ fn execute_action(
             let restore_mgr = RestoreManager::new(db);
             match restore_mgr.restore_entry(&entry, false, false) {
                 Ok(_) => {
-                    *status_message = Some(format!("Restored '{}'", entry.filename));
+                    *status_message = Some(format!("Restored '{}' to original path", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
+                    *restored_entries = db.list_restored(None).unwrap_or_default();
+                    if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
+                        restored_table_state.select(Some(0));
+                    }
                     if sel >= entries.len() && !entries.is_empty() {
                         table_state.select(Some(entries.len() - 1));
                     }
@@ -617,8 +876,12 @@ fn execute_action(
             let restore_mgr = RestoreManager::new(db);
             match restore_mgr.restore_entry(&entry, true, false) {
                 Ok(_) => {
-                    *status_message = Some(format!("Restored snapshot of '{}'", entry.filename));
+                    *status_message = Some(format!("Restored snapshot of '{}' (reflink/copy)", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
+                    *restored_entries = db.list_restored(None).unwrap_or_default();
+                    if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
+                        restored_table_state.select(Some(0));
+                    }
                     *view_mode = ViewMode::Browsing;
                 }
                 Err(e) => {

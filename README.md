@@ -77,9 +77,16 @@ rinode
 ```
 
 - **Left pane**: Table of preserved files (ID, filename, size, deletion time, inode number).
-- **Right pane**: Inode metadata, permissions, ownership, timestamps, and vault path.
-- **Actions**: Press `Enter` on any row to open the action menu (Restore, Reflink fork, Inspect, Purge, Copy path).
-- **Shortcuts**: `j`/`k` to navigate, `r` to restore, `x` to purge, `e` to view active exclusion rules, `/` to filter, `q` to exit.
+- **Right pane**:
+  - **Upper section (`ENTRY DETAILS`)**: Complete inode metadata, permissions, ownership, timestamps, and vault path.
+  - **Lower section (`RESTORE HISTORY`)**: Audit table of previously restored files, with original inode and restoration timestamps.
+- **Navigation & focus**:
+  - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Preserved Files and Restore History.
+  - `j` / `k` navigate rows within the active pane.
+- **Actions**:
+  - Press `Enter` on a preserved file to open the action menu (Restore, Reflink fork, Inspect, Purge, Copy path).
+  - Press `Enter` on a restored file in history to inspect its metadata.
+  - Quick keys: `r` to restore, `x` to purge, `e` to view active exclusion rules, `/` to filter, `q` to exit.
 
 ### Command-line interface
 

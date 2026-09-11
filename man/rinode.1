@@ -41,8 +41,9 @@ If invoked without arguments, \fBrinode\fR launches an interactive split-screen 
 .TP
 .B tui
 Launch the interactive dual-pane terminal dashboard.
-Left pane displays a navigable table of preserved files; right pane renders full inode provenance.
-Press \fBEnter\fR on any entry to open the action menu (Restore, Reflink Fork, Inspect, Purge, Copy Path).
+Left pane displays a navigable table of preserved files; right pane displays entry details and inode provenance (upper) alongside a restore history audit table (lower).
+Use \fBTab\fR, \fBh\fR, or \fBl\fR (or arrow keys) to switch focus between preserved files and restore history.
+Press \fBEnter\fR on a preserved entry to open the action menu (Restore, Reflink Fork, Inspect, Purge, Copy Path) or on a restored entry to inspect metadata.
 Press \fBe\fR to open the active exclusion rules modal.
 Press \fB/\fR to search/filter the vault list.
 Press \fBq\fR or \fBEsc\fR to exit.
