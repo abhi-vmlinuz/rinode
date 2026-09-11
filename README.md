@@ -94,8 +94,9 @@ rinode rm report.pdf
 # Delete a directory hierarchy
 rinode rm -rf ./build_output/
 
-# Permanently delete without vaulting
-rinode rm -p unwanted_cache.tar
+# Permanently delete without vaulting (unlinks directly from filesystem)
+rinode rm --no-vault unwanted_cache.tar
+# Note: -p and --permanent are supported aliases
 ```
 
 #### Listing vaulted files
@@ -222,10 +223,54 @@ eval "$(rinode init bash)"
 eval "$(rinode init zsh)"
 ```
 
-To also replace standard `rm` with `rinode rm`, add the `--alias-rm` flag:
+### Custom shortcut or disabling the wrapper
+
+The default shortcut command name is `r`. If `r` conflicts with an existing tool (such as GNU R or ranger), pass `--alias <NAME>`:
+
+```fish
+rinode init fish --alias ri | source
+```
+
+To disable the shortcut function entirely and keep only completions or standard `rm` redirection:
+
+```fish
+rinode init fish --alias none --alias-rm | source
+```
+
+To replace standard `rm` with `rinode rm`, add the `--alias-rm` flag:
+
 ```fish
 rinode init fish --alias-rm | source
 ```
+
+## Vault storage and filename format
+
+Files moved to the vault are stored in a root-level hidden directory on the matching mount point (`.rinode-vault`, mode `0700`).
+
+To avoid name collisions when multiple files with the same name are deleted over time across different directories, `rinode` renames each entry using this format:
+
+```text
+<sanitized_filename>__<inode>_<dev_minor>_<timestamp_nanos>_<random_hex>
+```
+
+Example:
+```text
+report.pdf__1982182_0_1789062920171503320_cac889
+```
+
+This format provides several properties:
+- **Collision immunity**: Nanosecond timestamps combined with 6 hex characters of random entropy ensure that rapid deletions of files with identical names never collide.
+- **Provenance preservation on disk**: In the event that the SQLite index (`rinode.db`) is removed or corrupted, the entry's original inode number and filesystem device minor ID remain recoverable directly from the storage filename.
+
+## Edge cases and filesystem semantics
+
+### Symlinks
+When deleting a symbolic link, `rinode` does not traverse or alter the link target. It reads the target destination path via `readlink` and saves the raw string in the audit index. During restoration, `symlinkat` recreates the symbolic link with its original target path intact, preserving relative and absolute link destinations.
+
+### Open file descriptors
+Under Linux VFS semantics, moving an open file to another directory on the same filesystem does not invalidate open file descriptors. If a background process or service is actively writing to a file when `rinode rm` is executed, `renameat2(2)` relocates the directory entry into `.rinode-vault` without dropping the inode's link count to zero. The active process continues reading and writing to its descriptor without `EBADF` or write errors.
+
+If the entry is subsequently purged from the vault, the kernel unlinks the directory entry, and the physical disk extents are released once all processes holding the descriptor close it.
 
 ## Configuration
 
@@ -253,7 +298,7 @@ system_paths = [
 
 path_regex = [
     ".*/node_modules/.*",
-    ".*/\\.git/(?!config|HEAD).*",
+    ".*/\\.git/.*",
     ".*/target/(debug|release)/.*",
     ".*/build/.*",
     ".*/\\.cache/.*",
@@ -283,3 +328,4 @@ Integration tests run against a local test hierarchy:
 ```bash
 make test
 ```
+

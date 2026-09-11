@@ -15,7 +15,7 @@ pub fn detect_shell() -> Option<String> {
     None
 }
 
-pub fn generate_init(shell_opt: Option<&str>, alias_rm: bool) -> Result<String, String> {
+pub fn generate_init(shell_opt: Option<&str>, alias_name: &str, alias_rm: bool) -> Result<String, String> {
     let shell = match shell_opt {
         Some(s) => s.to_string(),
         None => match detect_shell() {
@@ -33,33 +33,41 @@ pub fn generate_init(shell_opt: Option<&str>, alias_rm: bool) -> Result<String, 
         }
     };
 
+    let alias_trim = alias_name.trim();
+    let has_alias = !alias_trim.is_empty()
+        && !alias_trim.eq_ignore_ascii_case("none")
+        && !alias_trim.eq_ignore_ascii_case("false");
+
     match shell.to_lowercase().as_str() {
         "fish" => {
             let mut out = String::from(
-                r#"# rinode shell integration for fish
-# To enable, add this line to ~/.config/fish/config.fish:
-#   rinode init fish | source
-
-function r --description "rinode smart shortcut"
-    if test (count $argv) -eq 0
-        rinode tui
-    else if test "$argv[1]" = "ls"
-        rinode ls $argv[2..-1]
-    else if test "$argv[1]" = "restore"
-        rinode restore $argv[2..-1]
-    else if test "$argv[1]" = "inspect"
-        rinode inspect $argv[2..-1]
-    else if test "$argv[1]" = "purge"
-        rinode purge $argv[2..-1]
-    else
-        rinode rm $argv
-    end
-end
-
-# Inherit completions from rinode
-complete -c r -w rinode
-"#,
+                "# rinode shell integration for fish\n\
+                 # To enable, add this line to ~/.config/fish/config.fish:\n\
+                 #   rinode init fish | source\n\n",
             );
+
+            if has_alias {
+                out.push_str(&format!(
+                    "function {a} --description \"rinode shortcut\"\n\
+                         if test (count $argv) -eq 0\n\
+                             rinode tui\n\
+                         else if test \"$argv[1]\" = \"ls\"\n\
+                             rinode ls $argv[2..-1]\n\
+                         else if test \"$argv[1]\" = \"restore\"\n\
+                             rinode restore $argv[2..-1]\n\
+                         else if test \"$argv[1]\" = \"inspect\"\n\
+                             rinode inspect $argv[2..-1]\n\
+                         else if test \"$argv[1]\" = \"purge\"\n\
+                             rinode purge $argv[2..-1]\n\
+                         else\n\
+                             rinode rm $argv\n\
+                         end\n\
+                     end\n\n\
+                     # Inherit completions from rinode\n\
+                     complete -c {a} -w rinode\n",
+                    a = alias_trim
+                ));
+            }
 
             if alias_rm {
                 out.push_str("\nalias rm=\"rinode rm\"\n");
@@ -70,30 +78,33 @@ complete -c r -w rinode
 
         "bash" => {
             let mut out = String::from(
-                r#"# rinode shell integration for bash
-# To enable, add this line to ~/.bashrc:
-#   eval "$(rinode init bash)"
-
-r() {
-    if [ $# -eq 0 ]; then
-        rinode tui
-    elif [ "$1" = "ls" ]; then
-        rinode ls "${@:2}"
-    elif [ "$1" = "restore" ]; then
-        rinode restore "${@:2}"
-    elif [ "$1" = "inspect" ]; then
-        rinode inspect "${@:2}"
-    elif [ "$1" = "purge" ]; then
-        rinode purge "${@:2}"
-    else
-        rinode rm "$@"
-    fi
-}
-
-# Inherit bash completion
-complete -F _rinode r 2>/dev/null || true
-"#,
+                "# rinode shell integration for bash\n\
+                 # To enable, add this line to ~/.bashrc:\n\
+                 #   eval \"$(rinode init bash)\"\n\n",
             );
+
+            if has_alias {
+                out.push_str(&format!(
+                    "{a}() {{\n\
+                         if [ $# -eq 0 ]; then\n\
+                             rinode tui\n\
+                         elif [ \"$1\" = \"ls\" ]; then\n\
+                             rinode ls \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"restore\" ]; then\n\
+                             rinode restore \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"inspect\" ]; then\n\
+                             rinode inspect \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"purge\" ]; then\n\
+                             rinode purge \"${{@:2}}\"\n\
+                         else\n\
+                             rinode rm \"$@\"\n\
+                         fi\n\
+                     }}\n\n\
+                     # Inherit bash completion\n\
+                     complete -F _rinode {a} 2>/dev/null || true\n",
+                    a = alias_trim
+                ));
+            }
 
             if alias_rm {
                 out.push_str("\nalias rm=\"rinode rm\"\n");
@@ -104,30 +115,33 @@ complete -F _rinode r 2>/dev/null || true
 
         "zsh" => {
             let mut out = String::from(
-                r#"# rinode shell integration for zsh
-# To enable, add this line to ~/.zshrc:
-#   eval "$(rinode init zsh)"
-
-r() {
-    if [ $# -eq 0 ]; then
-        rinode tui
-    elif [ "$1" = "ls" ]; then
-        rinode ls "${@:2}"
-    elif [ "$1" = "restore" ]; then
-        rinode restore "${@:2}"
-    elif [ "$1" = "inspect" ]; then
-        rinode inspect "${@:2}"
-    elif [ "$1" = "purge" ]; then
-        rinode purge "${@:2}"
-    else
-        rinode rm "$@"
-    fi
-}
-
-# Inherit zsh completion
-compdef _rinode r 2>/dev/null || true
-"#,
+                "# rinode shell integration for zsh\n\
+                 # To enable, add this line to ~/.zshrc:\n\
+                 #   eval \"$(rinode init zsh)\"\n\n",
             );
+
+            if has_alias {
+                out.push_str(&format!(
+                    "{a}() {{\n\
+                         if [ $# -eq 0 ]; then\n\
+                             rinode tui\n\
+                         elif [ \"$1\" = \"ls\" ]; then\n\
+                             rinode ls \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"restore\" ]; then\n\
+                             rinode restore \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"inspect\" ]; then\n\
+                             rinode inspect \"${{@:2}}\"\n\
+                         elif [ \"$1\" = \"purge\" ]; then\n\
+                             rinode purge \"${{@:2}}\"\n\
+                         else\n\
+                             rinode rm \"$@\"\n\
+                         fi\n\
+                     }}\n\n\
+                     # Inherit zsh completion\n\
+                     compdef _rinode {a} 2>/dev/null || true\n",
+                    a = alias_trim
+                ));
+            }
 
             if alias_rm {
                 out.push_str("\nalias rm=\"rinode rm\"\n");

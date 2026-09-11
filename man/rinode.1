@@ -6,7 +6,7 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 [\fICOMMAND\fR] [\fIOPTIONS\fR]
 .br
 .B rinode rm
-[\fB\-p\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
+[\fB\-p\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
 .br
 .B rinode ls
 [\fB\-n\fR \fILIMIT\fR] [\fB\-a\fR|\fB\-\-all\fR]
@@ -21,7 +21,7 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 [\fB\-d\fR \fIDAYS\fR] [\fB\-\-all\fR]
 .br
 .B rinode init
-[\fB\-\-alias\-rm\fR] \fISHELL\fR
+[\fB\-\-alias\fR \fINAME\fR] [\fB\-\-alias\-rm\fR] \fISHELL\fR
 .br
 .B rinode exclude
 [\fIPATTERN\fR] [\fB\-l\fR|\fB\-\-list\fR] [\fB\-t\fR|\fB\-\-test\fR \fIPATH\fR] [\fB\-r\fR|\fB\-\-remove\fR \fIRULE\fR]
@@ -67,7 +67,7 @@ Permanently destroy expired files in the vault to reclaim disk storage.
 .TP
 .B init \fISHELL\fR
 Generate shell integration code for \fBfish\fR, \fBbash\fR, or \fBzsh\fR.
-Configures the \fBr\fR shortcut and optionally aliases \fBrm\fR when invoked with \fB\-\-alias\-rm\fR.
+Configures the shortcut command (default: \fBr\fR) and optionally aliases \fBrm\fR when invoked with \fB\-\-alias\-rm\fR.
 .TP
 .B exclude [\fIPATTERN\fR]
 Manage or test pattern and directory exclusions.
@@ -76,7 +76,7 @@ If a \fIPATTERN\fR is specified (e.g. \fI*.log\fR or \fInode_modules\fR), it is 
 .SH OPTIONS
 .SS "Options for rm"
 .TP
-.BR \-p ", " \-\-permanent
+.BR \-p ", " \-\-no\-vault ", " \-\-permanent
 Permanently unlink the target without moving it into the vault.
 .TP
 .BR \-f ", " \-\-force
@@ -118,6 +118,9 @@ Purge entries deleted more than \fIDAYS\fR ago (default: configured retention da
 Force permanent deletion of all preserved files in the vault.
 .SS "Options for init"
 .TP
+.BR \-\-alias " \fINAME\fR"
+Specify custom name for the shortcut command (default: \fBr\fR). Set to \fBnone\fR to omit shortcut wrapper.
+.TP
 .B \-\-alias\-rm
 Include shell alias or wrapper replacing standard \fBrm\fR with \fBrinode rm\fR.
 .SS "Options for exclude"
@@ -154,7 +157,7 @@ system_paths = [
 ]
 path_regex = [
     ".*/node_modules/.*",
-    ".*/\\\\.git/(?!config|HEAD).*",
+    ".*/\\\\.git/.*",
     ".*/target/(debug|release)/.*"
 ]
 filename_regex = [

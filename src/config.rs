@@ -47,7 +47,7 @@ fn default_system_paths() -> Vec<String> {
 fn default_path_regex() -> Vec<String> {
     vec![
         r".*/node_modules/.*".into(),
-        r".*/\.git/(?!config|HEAD).*".into(),
+        r".*/\.git/.*".into(),
         r".*/target/(debug|release)/.*".into(),
         r".*/build/.*".into(),
         r".*/\.cache/.*".into(),
@@ -350,14 +350,18 @@ impl Config {
         Ok(removed)
     }
 
-    /// Save current configuration to user config (~/.config/rinode/config.toml)
+    /// Save current configuration to active configuration (./rinode.toml if present locally, otherwise ~/.config/rinode/config.toml)
     pub fn save_to_user_config(&self) -> Result<PathBuf, String> {
-        let config_dir = directories::ProjectDirs::from("com", "recent-inode", "rinode")
-            .map(|p| p.config_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config/rinode"));
+        let config_file = if Path::new("rinode.toml").exists() {
+            PathBuf::from("rinode.toml")
+        } else {
+            let config_dir = directories::ProjectDirs::from("com", "recent-inode", "rinode")
+                .map(|p| p.config_dir().to_path_buf())
+                .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config/rinode"));
 
-        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
-        let config_file = config_dir.join("config.toml");
+            fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+            config_dir.join("config.toml")
+        };
 
         let raw = ConfigRaw {
             storage: Some(self.storage.clone()),

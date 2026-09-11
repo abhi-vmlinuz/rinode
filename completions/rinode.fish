@@ -16,7 +16,7 @@ complete -c rinode -n "__fish_use_subcommand" -a "help" -d "Print help informati
 
 # Flags for rm
 complete -c rinode -n "__fish_seen_subcommand_from rm" -F
-complete -c rinode -n "__fish_seen_subcommand_from rm" -s p -l permanent -d "Permanently delete without vaulting"
+complete -c rinode -n "__fish_seen_subcommand_from rm" -s p -l no-vault -l permanent -d "Permanently delete without vaulting"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s f -l force -d "Force deletion without warnings"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s r -s R -l recursive -d "Remove directories recursively (POSIX compatibility)"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s v -l verbose -d "Explain what is being done"
@@ -46,6 +46,7 @@ complete -c rinode -n "__fish_seen_subcommand_from purge" -s h -l help -d "Print
 
 # Flags for init
 complete -c rinode -n "__fish_seen_subcommand_from init" -a "fish bash zsh" -d "Supported shell"
+complete -c rinode -n "__fish_seen_subcommand_from init" -l alias -r -d "Custom shortcut command name (default: r)"
 complete -c rinode -n "__fish_seen_subcommand_from init" -l alias-rm -d "Also alias rm to rinode rm"
 complete -c rinode -n "__fish_seen_subcommand_from init" -s h -l help -d "Print help"
 

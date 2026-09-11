@@ -4,6 +4,7 @@ set -euo pipefail
 BIN="$HOME/projects/recent-inode/target/release/rinode"
 TEST_ROOT="$HOME/rinode_test_$(date +%s)"
 mkdir -p "$TEST_ROOT"
+cp "$HOME/projects/recent-inode/rinode.toml" "$TEST_ROOT/rinode.toml"
 cd "$TEST_ROOT"
 
 echo "=== RINODE INTEGRATION TESTS IN $TEST_ROOT ==="
@@ -141,10 +142,36 @@ if [ -f verbose_test.txt ]; then
     echo "[!] Error: verbose_test.txt still exists!"
     exit 1
 fi
-echo "[+] POSIX rm flags (-rf, -v) work seamlessly."
+echo "[+] POSIX rm flags (-rf, -v) work as expected."
+
+# TEST 7.1: Permanent / no-vault direct unlinking test
+echo -e "\n[TEST 7.1] Testing --no-vault and --permanent flags..."
+echo "permanent junk 1" > perm1.txt
+"$BIN" rm --no-vault perm1.txt
+if [ -f perm1.txt ]; then
+    echo "[!] Error: perm1.txt still exists after --no-vault!"
+    exit 1
+fi
+# Ensure it was not added to the vault index
+if "$BIN" ls | grep -q "perm1.txt"; then
+    echo "[!] Error: perm1.txt was indexed in the vault despite --no-vault!"
+    exit 1
+fi
+
+echo "permanent junk 2" > perm2.txt
+"$BIN" rm -p perm2.txt
+if [ -f perm2.txt ]; then
+    echo "[!] Error: perm2.txt still exists after -p!"
+    exit 1
+fi
+if "$BIN" ls | grep -q "perm2.txt"; then
+    echo "[!] Error: perm2.txt was indexed in the vault despite -p!"
+    exit 1
+fi
+echo "[+] Direct unlinking (--no-vault, -p) works without indexing."
 
 # TEST 8: Shell init generation test
-echo -e "\n[TEST 8] Shell init generation test (fish, bash, zsh, auto-detect)..."
+echo -e "\n[TEST 8] Shell init generation test (fish, bash, zsh, auto-detect, custom alias)..."
 FISH_INIT=$("$BIN" init fish)
 echo "$FISH_INIT" | grep -q "function r" || { echo "[!] Fish init missing function r"; exit 1; }
 FISH_INIT_ALIAS=$("$BIN" init fish --alias-rm)
@@ -155,13 +182,24 @@ ZSH_INIT=$("$BIN" init zsh --alias-rm)
 echo "$ZSH_INIT" | grep -q 'alias rm="rinode rm"' || { echo "[!] Zsh init missing rm alias"; exit 1; }
 AUTO_DETECT=$(SHELL=/usr/bin/fish "$BIN" init)
 echo "$AUTO_DETECT" | grep -q "function r" || { echo "[!] Auto-detect fish init failed"; exit 1; }
-echo "[+] Shell init scripts and auto-detection work correctly."
+
+# Custom alias test
+CUSTOM_FISH=$("$BIN" init fish --alias ri)
+echo "$CUSTOM_FISH" | grep -q "function ri" || { echo "[!] Custom alias ri not generated"; exit 1; }
+NO_ALIAS_BASH=$("$BIN" init bash --alias none)
+if echo "$NO_ALIAS_BASH" | grep -q "r()"; then
+    echo "[!] Alias none still generated r() wrapper in bash!"; exit 1;
+fi
+echo "[+] Shell init scripts, custom aliases, and auto-detection work correctly."
 
 # TEST 9: Exclusion CLI test
 echo -e "\n[TEST 9] Exclusion management CLI test..."
 # Test dry-run diagnosis
 "$BIN" exclude --test "/home/user/myproject/node_modules/express/index.js" | grep -q "MATCHED" || {
     echo "[!] node_modules test path was not excluded"; exit 1;
+}
+"$BIN" exclude --test "/home/user/repo/.git/objects/abc" | grep -q "MATCHED" || {
+    echo "[!] .git/objects path was not excluded"; exit 1;
 }
 "$BIN" exclude --test "/home/user/document.pdf" | grep -q "NOT EXCLUDED" || {
     echo "[!] normal document was unexpectedly excluded"; exit 1;

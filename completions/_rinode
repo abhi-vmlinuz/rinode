@@ -28,7 +28,7 @@ _rinode() {
             case $words[1] in
                 rm)
                     _arguments \
-                        '(-p --permanent)'{-p,--permanent}'[Permanently delete without vaulting]' \
+                        '(-p --no-vault --permanent)'{-p,--no-vault,--permanent}'[Permanently delete without vaulting]' \
                         '(-f --force)'{-f,--force}'[Force deletion without warnings]' \
                         '(-r -R --recursive)'{-r,-R,--recursive}'[Remove directories recursively]' \
                         '(-v --verbose)'{-v,--verbose}'[Explain what is being done]' \
@@ -58,6 +58,7 @@ _rinode() {
                     ;;
                 init)
                     _arguments \
+                        '--alias[Custom shortcut command name (default: r)]:name:' \
                         '--alias-rm[Also alias rm to rinode rm]' \
                         '1:shell:(fish bash zsh)'
                     ;;

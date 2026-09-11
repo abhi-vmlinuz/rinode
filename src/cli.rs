@@ -17,8 +17,8 @@ pub enum Commands {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
 
-        /// Permanently delete without preserving in vault
-        #[arg(short, long)]
+        /// Permanently delete without vaulting (unlinks directly from filesystem)
+        #[arg(long = "no-vault", visible_alias = "permanent", short = 'p')]
         permanent: bool,
 
         /// Force deletion without warnings
@@ -101,6 +101,10 @@ pub enum Commands {
     Init {
         /// Shell type (fish, bash, or zsh). If omitted, auto-detects from $SHELL.
         shell: Option<String>,
+
+        /// Name of the shortcut command (default: 'r'). Set to 'none' to disable shortcut.
+        #[arg(long, default_value = "r")]
+        alias: String,
 
         /// Also alias rm="rinode rm" in your shell
         #[arg(long)]

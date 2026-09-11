@@ -24,7 +24,7 @@ _rinode() {
     case "$subcmd" in
         rm)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--permanent -p --force -f -r -R --recursive -v --verbose -i --interactive -d --dir --help -h" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--no-vault --permanent -p --force -f -r -R --recursive -v --verbose -i --interactive -d --dir --help -h" -- "$cur") )
             else
                 if declare -F _filedir >/dev/null 2>&1; then
                     _filedir
@@ -62,7 +62,7 @@ _rinode() {
             ;;
         init)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--alias-rm --help -h" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--alias --alias-rm --help -h" -- "$cur") )
             else
                 COMPREPLY=( $(compgen -W "fish bash zsh" -- "$cur") )
             fi

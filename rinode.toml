@@ -14,7 +14,7 @@ system_paths = [
 
 path_regex = [
     ".*/node_modules/.*",
-    ".*/\\.git/(?!config|HEAD).*",
+    ".*/\\.git/.*",
     ".*/target/(debug|release)/.*",
     ".*/build/.*",
     ".*/\\.cache/.*",

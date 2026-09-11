@@ -241,8 +241,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Purged {} expired file(s) from the vault.", purged_count);
         }
 
-        Commands::Init { shell, alias_rm } => {
-            match init::generate_init(shell.as_deref(), alias_rm) {
+        Commands::Init { shell, alias, alias_rm } => {
+            match init::generate_init(shell.as_deref(), &alias, alias_rm) {
                 Ok(script) => print!("{}", script),
                 Err(e) => {
                     eprintln!("rinode: init error: {}", e);
