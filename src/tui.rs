@@ -127,22 +127,22 @@ fn main_loop<B: ratatui::backend::Backend>(
             // 1. TOP HEADER
             let time_str = Utc::now().format("%H:%M:%S").to_string();
             let header_line = Line::from(vec![
-                Span::styled("• ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("• ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                 Span::styled("rinode live  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("[{}]  ", time_str), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("[{}]  ", time_str), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                 Span::styled(
                     format!("{} preserved", entries.len()),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("  |  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("  |  ", Style::default().fg(Color::LightCyan)),
                 Span::styled(
                     format!("{} restored", restored_entries.len()),
-                    Style::default().fg(Color::LightGreen),
+                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
                 ),
             ]);
             let header_border = Line::from(Span::styled(
                 "─".repeat(size.width as usize),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Cyan),
             ));
             let header_widget = Paragraph::new(vec![header_line, header_border]);
             f.render_widget(header_widget, root_chunks[0]);
@@ -161,9 +161,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .iter()
                 .map(|h| {
                     let color = if active_pane == ActivePane::Preserved {
-                        Color::Cyan
+                        Color::LightCyan
                     } else {
-                        Color::DarkGray
+                        Color::Cyan
                     };
                     Span::styled(*h, Style::default().fg(color).add_modifier(Modifier::BOLD))
                 });
@@ -189,11 +189,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let date_text = entry.deleted_at.format("%Y-%m-%d %H:%M").to_string();
 
                 let style = if is_selected && active_pane == ActivePane::Preserved {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
                 } else if is_selected {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::Gray)
+                    Style::default().fg(Color::White)
                 };
 
                 Row::new(vec![
@@ -241,7 +241,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             let details_block = Block::default()
                 .borders(Borders::LEFT)
-                .border_style(Style::default().fg(Color::DarkGray));
+                .border_style(Style::default().fg(Color::Cyan));
 
             if let Some(entry) = current_entry {
                 let file_type = if entry.is_directory {
@@ -258,9 +258,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                     "ENTRY DETAILS"
                 };
                 let title_color = if is_restored_view {
-                    Color::Green
+                    Color::LightGreen
                 } else {
-                    Color::Yellow
+                    Color::LightCyan
                 };
 
                 let mut details_lines = vec![
@@ -269,76 +269,76 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Style::default().fg(title_color).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(vec![
-                        Span::styled("• ", Style::default().fg(Color::Cyan)),
-                        Span::styled(&entry.filename, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("  [{}]", file_type), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled("• ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(&entry.filename, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("  [{}]", file_type), Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::from(""),
                     Line::from(vec![
-                        Span::styled("Path:        ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Path:        ", Style::default().fg(Color::LightCyan)),
                         Span::styled(&entry.original_path, Style::default().fg(Color::White)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Inode:       ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Inode:       ", Style::default().fg(Color::LightCyan)),
                         Span::styled(entry.inode_no.to_string(), Style::default().fg(Color::White)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Device:      ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Device:      ", Style::default().fg(Color::LightCyan)),
                         Span::styled(
                             format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id),
                             Style::default().fg(Color::White),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("Size:        ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Size:        ", Style::default().fg(Color::LightCyan)),
                         Span::styled(
                             format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size),
                             Style::default().fg(Color::White),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("Permissions: ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Permissions: ", Style::default().fg(Color::LightCyan)),
                         Span::styled(format!("{:04o}", entry.mode), Style::default().fg(Color::White)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Owner:       ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Owner:       ", Style::default().fg(Color::LightCyan)),
                         Span::styled(format!("UID {} / GID {}", entry.uid, entry.gid), Style::default().fg(Color::White)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Deleted:     ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Deleted:     ", Style::default().fg(Color::LightCyan)),
                         Span::styled(entry.deleted_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::White)),
                     ]),
                 ];
 
                 if let Some(restored_at) = entry.restored_at {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Restored:    ", Style::default().fg(Color::LightBlue)),
-                        Span::styled(restored_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::Green)),
+                        Span::styled("Restored:    ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(restored_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::LightGreen)),
                     ]));
                 }
 
                 details_lines.push(Line::from(vec![
-                    Span::styled("Status:      ", Style::default().fg(Color::LightBlue)),
-                    Span::styled(&entry.status, Style::default().fg(if is_restored_view { Color::Cyan } else { Color::Green }).add_modifier(Modifier::BOLD)),
+                    Span::styled("Status:      ", Style::default().fg(Color::LightCyan)),
+                    Span::styled(&entry.status, Style::default().fg(if is_restored_view { Color::LightCyan } else { Color::LightGreen }).add_modifier(Modifier::BOLD)),
                 ]));
 
                 if let Some(target) = &entry.symlink_target {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Symlink To:  ", Style::default().fg(Color::LightBlue)),
-                        Span::styled(target, Style::default().fg(Color::Yellow)),
+                        Span::styled("Symlink To:  ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(target, Style::default().fg(Color::LightYellow)),
                     ]));
                 }
 
                 if let Some(fp) = &entry.quick_fingerprint {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Fingerprint: ", Style::default().fg(Color::LightBlue)),
+                        Span::styled("Fingerprint: ", Style::default().fg(Color::LightCyan)),
                         Span::styled(fp, Style::default().fg(Color::White)),
                     ]));
                 }
 
                 details_lines.push(Line::from(""));
                 details_lines.push(Line::from(vec![
-                    Span::styled("Vault:       ", Style::default().fg(Color::LightBlue)),
+                    Span::styled("Vault:       ", Style::default().fg(Color::LightCyan)),
                     Span::styled(&entry.vault_path, Style::default().fg(Color::White)),
                 ]));
 
@@ -347,21 +347,21 @@ fn main_loop<B: ratatui::backend::Backend>(
             } else {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  No file selected.", Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled("  No file selected.", Style::default().fg(Color::LightCyan))),
                 ]).block(details_block);
                 f.render_widget(empty_para, right_chunks[0]);
             }
 
             // Bottom Right Pane: RESTORE HISTORY
             let history_border_color = if active_pane == ActivePane::Restored {
-                Color::Cyan
+                Color::LightCyan
             } else {
-                Color::DarkGray
+                Color::Cyan
             };
             let history_title_color = if active_pane == ActivePane::Restored {
-                Color::Cyan
+                Color::LightCyan
             } else {
-                Color::Green
+                Color::LightGreen
             };
 
             let history_block = Block::default()
@@ -375,8 +375,8 @@ fn main_loop<B: ratatui::backend::Backend>(
             if restored_entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  No restored files in history.", Style::default().fg(Color::DarkGray))),
-                    Line::from(Span::styled("  Files restored with [r] will appear here.", Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled("  No restored files in history.", Style::default().fg(Color::LightCyan))),
+                    Line::from(Span::styled("  Files restored with [r] will appear here.", Style::default().fg(Color::White))),
                 ])
                 .block(history_block);
                 f.render_widget(empty_para, right_chunks[1]);
@@ -385,7 +385,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     Span::styled(
                         *h,
                         Style::default()
-                            .fg(if active_pane == ActivePane::Restored { Color::Cyan } else { Color::DarkGray })
+                            .fg(if active_pane == ActivePane::Restored { Color::LightCyan } else { Color::Cyan })
                             .add_modifier(Modifier::BOLD),
                     )
                 })).height(1);
@@ -398,11 +398,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                         "  "
                     };
                     let style = if is_sel && active_pane == ActivePane::Restored {
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
                     } else if is_sel {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(Color::Gray)
+                        Style::default().fg(Color::White)
                     };
 
                     let time_str = entry.restored_at
@@ -437,11 +437,11 @@ fn main_loop<B: ratatui::backend::Backend>(
             // 3. BOTTOM FOOTER
             let footer_border = Line::from(Span::styled(
                 "─".repeat(size.width as usize),
-                Style::default().fg(Color::Gray),
+                Style::default().fg(Color::Cyan),
             ));
 
             let status_span = if let Some(msg) = &status_message {
-                Span::styled(format!("  {}  ", msg), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                Span::styled(format!("  {}  ", msg), Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))
             } else {
                 Span::raw("")
             };
@@ -450,37 +450,37 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ViewMode::Browsing => {
                     if active_pane == ActivePane::Preserved {
                         Line::from(vec![
-                            Span::styled("[Tab/l] History Pane  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("[Tab/l] History Pane  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
                             Span::styled("|  [Enter] Menu  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [r] Restore  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [x] Purge  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::Cyan)),
-                            Span::styled("|  [q] Quit", Style::default().fg(Color::Gray)),
+                            Span::styled("|  [r] Restore  ", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [x] Purge  ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("|  [q] Quit", Style::default().fg(Color::LightYellow)),
                             status_span,
                         ])
                     } else {
                         Line::from(vec![
-                            Span::styled("[Tab/h] Preserved Pane  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("[Tab/h] Preserved Pane  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
                             Span::styled("|  [Enter] Inspect  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::Cyan)),
-                            Span::styled("|  [q] Quit", Style::default().fg(Color::Gray)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("|  [q] Quit", Style::default().fg(Color::LightYellow)),
                             status_span,
                         ])
                     }
                 }
                 ViewMode::ActionMenu => Line::from(vec![
-                    Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(Color::LightCyan)),
+                    Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                     Span::styled("|  [Enter] Execute  ", Style::default().fg(Color::White)),
-                    Span::styled("|  [Esc/q] Close Menu", Style::default().fg(Color::Gray)),
+                    Span::styled("|  [Esc/q] Close Menu", Style::default().fg(Color::LightYellow)),
                     status_span,
                 ]),
                 ViewMode::InspectModal => Line::from(vec![
-                    Span::styled("[Esc/q/Enter] Close Inspection", Style::default().fg(Color::White)),
+                    Span::styled("[Esc/q/Enter] Close Inspection", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                 ]),
                 ViewMode::ExclusionModal => Line::from(vec![
-                    Span::styled("[Esc/q/e] Close Rules View", Style::default().fg(Color::White)),
+                    Span::styled("[Esc/q/e] Close Rules View", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                 ]),
             };
 
@@ -495,10 +495,10 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     let title = format!(" Actions: {} (ID: {}) ", entry.filename, entry.id);
                     let modal_block = Block::default()
-                        .title(title)
+                        .title(Span::styled(title, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::White));
+                        .border_style(Style::default().fg(Color::Cyan));
 
                     let options = [
                         "1. Restore (Consume & Move back)",
@@ -513,7 +513,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         let is_active = i == action_index;
                         let prefix = if is_active { "▶ " } else { "  " };
                         let style = if is_active {
-                            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(Color::White)
                         };
@@ -525,7 +525,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     menu_lines.push(Line::from(""));
                     menu_lines.push(Line::from(Span::styled(
                         "  [1-5] Choose  |  [Esc] Close",
-                        Style::default().fg(Color::LightCyan),
+                        Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
                     )));
 
                     let menu_widget = Paragraph::new(menu_lines).block(modal_block);
@@ -544,34 +544,79 @@ fn main_loop<B: ratatui::backend::Backend>(
                     f.render_widget(Clear, popup_area);
 
                     let modal_block = Block::default()
-                        .title(format!(" Metadata Inspection: {} ", entry.filename))
+                        .title(Span::styled(
+                            format!(" Metadata Inspection: {} ", entry.filename),
+                            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                        ))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Cyan));
 
                     let mut inspect_lines = vec![
                         Line::from(""),
-                        Line::from(format!("  Database ID:        {}", entry.id)),
-                        Line::from(format!("  Filename:           {}", entry.filename)),
-                        Line::from(format!("  Original Path:      {}", entry.original_path)),
-                        Line::from(format!("  Inode Number:       {}", entry.inode_no)),
-                        Line::from(format!("  Device / Mount:     {}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id)),
-                        Line::from(format!("  Size (bytes):       {} ({} bytes)", format_bytes(entry.file_size), entry.file_size)),
-                        Line::from(format!("  Permissions (Oct):  {:04o}", entry.mode)),
-                        Line::from(format!("  Owner UID / GID:    {} / {}", entry.uid, entry.gid)),
-                        Line::from(format!("  Link/Move Type:     {}", entry.link_type)),
-                        Line::from(format!("  Vault Status:       {}", entry.status)),
-                        Line::from(format!("  Deletion Time:      {}", entry.deleted_at.to_rfc3339())),
+                        Line::from(vec![
+                            Span::styled("  Database ID:        ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(entry.id.to_string(), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Filename:           ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(&entry.filename, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Original Path:      ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(&entry.original_path, Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Inode Number:       ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(entry.inode_no.to_string(), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Device / Mount:     ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Size (bytes):       ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Permissions (Oct):  ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(format!("{:04o}", entry.mode), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Owner UID / GID:    ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(format!("{} / {}", entry.uid, entry.gid), Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Link/Move Type:     ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(&entry.link_type, Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Vault Status:       ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(&entry.status, Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("  Deletion Time:      ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(entry.deleted_at.to_rfc3339(), Style::default().fg(Color::White)),
+                        ]),
                     ];
 
                     if let Some(restored_at) = entry.restored_at {
-                        inspect_lines.push(Line::from(format!("  Restoration Time:   {}", restored_at.to_rfc3339())));
+                        inspect_lines.push(Line::from(vec![
+                            Span::styled("  Restoration Time:   ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(restored_at.to_rfc3339(), Style::default().fg(Color::LightGreen)),
+                        ]));
                     }
 
-                    inspect_lines.push(Line::from(format!("  Fast Fingerprint:   {}", entry.quick_fingerprint.as_deref().unwrap_or("none"))));
-                    inspect_lines.push(Line::from(format!("  Vault File Path:    {}", entry.vault_path)));
+                    inspect_lines.push(Line::from(vec![
+                        Span::styled("  Fast Fingerprint:   ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(entry.quick_fingerprint.as_deref().unwrap_or("none"), Style::default().fg(Color::White)),
+                    ]));
+                    inspect_lines.push(Line::from(vec![
+                        Span::styled("  Vault File Path:    ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(&entry.vault_path, Style::default().fg(Color::White)),
+                    ]));
                     inspect_lines.push(Line::from(""));
-                    inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan))));
+                    inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
 
                     let inspect_widget = Paragraph::new(inspect_lines).block(modal_block);
                     f.render_widget(inspect_widget, popup_area);
@@ -584,33 +629,42 @@ fn main_loop<B: ratatui::backend::Backend>(
                 f.render_widget(Clear, popup_area);
 
                 let modal_block = Block::default()
-                    .title(" Active Exclusion Rules ")
+                    .title(Span::styled(" Active Exclusion Rules ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)))
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan));
 
                 let mut lines = vec![
                     Line::from(""),
-                    Line::from(Span::styled("  System Paths (Prefix match):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled("  System Paths (Prefix match):", Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))),
                 ];
                 for p in &config.exclusions.system_paths {
-                    lines.push(Line::from(format!("    • {}", p)));
+                    lines.push(Line::from(vec![
+                        Span::styled("    • ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(p.clone(), Style::default().fg(Color::White)),
+                    ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Path Patterns (Regex):", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Path Patterns (Regex):", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))));
                 for r in &config.exclusions.path_regex {
-                    lines.push(Line::from(format!("    • {}", r)));
+                    lines.push(Line::from(vec![
+                        Span::styled("    • ", Style::default().fg(Color::LightGreen)),
+                        Span::styled(r.clone(), Style::default().fg(Color::White)),
+                    ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Filename Patterns (Regex):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Filename Patterns (Regex):", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
                 for f in &config.exclusions.filename_regex {
-                    lines.push(Line::from(format!("    • {}", f)));
+                    lines.push(Line::from(vec![
+                        Span::styled("    • ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(f.clone(), Style::default().fg(Color::White)),
+                    ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Press [Esc/q/e] to return to dashboard", Style::default().fg(Color::LightCyan))));
+                lines.push(Line::from(Span::styled("  Press [Esc/q/e] to return to dashboard", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
 
                 let excl_widget = Paragraph::new(lines).block(modal_block);
                 f.render_widget(excl_widget, popup_area);
