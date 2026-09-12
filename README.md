@@ -305,8 +305,6 @@ Default configuration:
 ```toml
 [storage]
 retention_days = 14
-max_vault_size_gb = 20
-max_hash_file_size_mb = 50
 
 [exclusions]
 system_paths = [

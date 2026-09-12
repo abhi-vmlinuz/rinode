@@ -14,19 +14,13 @@ const STATX_MNT_ID: libc::c_uint = 0x00001000;
 // ioctl FICLONE for CoW reflinks on btrfs/XFS
 const FICLONE: libc::c_ulong = 0x40049409;
 
-// renameat2 flags
-#[allow(dead_code)]
-pub const RENAME_NOREPLACE: libc::c_uint = 1;
-
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct StatxInfo {
     pub dev_major: u32,
     pub dev_minor: u32,
     pub mnt_id: u64,
     pub ino: u64,
     pub mode: u16,
-    pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
     pub size: u64,
@@ -68,7 +62,6 @@ pub fn statx_path(path: &Path) -> Result<StatxInfo> {
         mnt_id: statxbuf.stx_mnt_id,
         ino: statxbuf.stx_ino,
         mode,
-        nlink: statxbuf.stx_nlink,
         uid: statxbuf.stx_uid,
         gid: statxbuf.stx_gid,
         size: statxbuf.stx_size,
@@ -115,13 +108,3 @@ pub fn reflink_clone(src: &File, dst: &File) -> Result<()> {
     }
 }
 
-/// Read symlink target safely
-pub fn read_symlink_target(path: &Path) -> Result<String> {
-    let target = std::fs::read_link(path)?;
-    Ok(target.to_string_lossy().to_string())
-}
-
-/// Recreate symlink safely
-pub fn create_symlink(target: &str, link_path: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(target, link_path)
-}

@@ -16,12 +16,10 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Row, Table};
 use config::Config;
 use db::Db;
-use restore::RestoreManager;
-use std::fs;
-use std::path::Path;
+use restore::restore_by_id_or_name;
 use vault::VaultManager;
 
-fn format_bytes(bytes: u64) -> String {
+pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
@@ -183,8 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             keep_vault,
             force,
         } => {
-            let restore_mgr = RestoreManager::new(&db);
-            match restore_mgr.restore_by_id_or_name(&target, keep_vault, force) {
+            match restore_by_id_or_name(&db, &target, keep_vault, force) {
                 Ok(entry) => {
                     println!(
                         "Restored [{}] '{}' to '{}'",
@@ -228,9 +225,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(fp) = entry.quick_fingerprint {
                         println!("  Fast Fingerprint:  {}", fp);
                     }
-                    if let Some(fh) = entry.full_hash {
-                        println!("  Full Hash:         {}", fh);
-                    }
                     println!("  Vault Location:    {}", entry.vault_path);
                 }
                 None => {
@@ -251,16 +245,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut purged_count = 0;
 
             for entry in expired {
-                let vault_path = Path::new(&entry.vault_path);
-                if vault_path.exists() {
-                    if entry.is_directory {
-                        fs::remove_dir_all(vault_path).ok();
-                    } else {
-                        fs::remove_file(vault_path).ok();
-                    }
+                if db.purge_entry(&entry).is_ok() {
+                    purged_count += 1;
                 }
-                db.mark_purged(entry.id)?;
-                purged_count += 1;
             }
 
             println!("Purged {} expired file(s) from the vault.", purged_count);

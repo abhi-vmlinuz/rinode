@@ -37,24 +37,3 @@ pub fn compute_quick_fingerprint(path: &Path, file_size: u64) -> Option<String> 
     Some(format!("{:016x}", hasher.finish()))
 }
 
-/// Compute full xxHash64 for files within the size limit
-#[allow(dead_code)]
-pub fn compute_full_hash(path: &Path) -> Option<String> {
-    let mut file = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return None,
-    };
-
-    let mut hasher = XxHash64::default();
-    let mut buffer = [0u8; CHUNK_SIZE];
-
-    loop {
-        match file.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => hasher.write(&buffer[..n]),
-            Err(_) => return None,
-        }
-    }
-
-    Some(format!("{:016x}", hasher.finish()))
-}

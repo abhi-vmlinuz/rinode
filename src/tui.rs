@@ -13,12 +13,12 @@ use ratatui::{
     Terminal,
 };
 use std::io::stdout;
-use std::path::Path;
 use std::time::Duration;
 
 use crate::config::Config;
 use crate::db::{Db, EntryRecord};
-use crate::restore::RestoreManager;
+use crate::format_bytes;
+use crate::restore::restore_entry;
 
 #[derive(PartialEq)]
 enum ViewMode {
@@ -51,22 +51,6 @@ pub fn run_tui(db: &Db, config: &Config) -> Result<(), Box<dyn std::error::Error
         eprintln!("TUI Error: {}", e);
     }
     Ok(())
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -823,8 +807,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                             if active_pane == ActivePane::Preserved {
                                 if let Some(idx) = table_state.selected() {
                                     if let Some(entry) = entries.get(idx) {
-                                        let restore_mgr = RestoreManager::new(db);
-                                        match restore_mgr.restore_entry(entry, false, false) {
+                                        match restore_entry(db, entry, false, false) {
                                             Ok(_) => {
                                                 status_message = Some(format!("Restored '{}' to original path", entry.filename));
                                                 entries = db.list_active(None)?;
@@ -849,15 +832,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                             if active_pane == ActivePane::Preserved {
                                 if let Some(idx) = table_state.selected() {
                                     if let Some(entry) = entries.get(idx) {
-                                        let vault_path = Path::new(&entry.vault_path);
-                                        if vault_path.exists() {
-                                            if entry.is_directory {
-                                                std::fs::remove_dir_all(vault_path).ok();
-                                            } else {
-                                                std::fs::remove_file(vault_path).ok();
-                                            }
-                                        }
-                                        db.mark_purged(entry.id).ok();
+                                        db.purge_entry(entry).ok();
                                         status_message = Some(format!("Purged '{}'", entry.filename));
                                         entries = db.list_active(None)?;
                                         history_entries = db.list_history(None)?;
@@ -887,24 +862,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                         KeyCode::Char('k') | KeyCode::Up => {
                             action_index = action_index.saturating_sub(1);
                         }
-                        KeyCode::Char('1') => {
-                            action_index = 0;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
-                        }
-                        KeyCode::Char('2') => {
-                            action_index = 1;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
-                        }
-                        KeyCode::Char('3') => {
-                            action_index = 2;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
-                        }
-                        KeyCode::Char('4') => {
-                            action_index = 3;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
-                        }
-                        KeyCode::Char('5') => {
-                            action_index = 4;
+                        KeyCode::Char(c @ '1'..='5') => {
+                            action_index = (c as usize) - ('1' as usize);
                             execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Enter => {
@@ -954,38 +913,23 @@ fn execute_action(
     };
 
     match action_idx {
-        0 => {
-            // Restore (Consume)
-            let restore_mgr = RestoreManager::new(db);
-            match restore_mgr.restore_entry(&entry, false, false) {
+        0 | 1 => {
+            let keep_vault = action_idx == 1;
+            match restore_entry(db, &entry, keep_vault, false) {
                 Ok(_) => {
-                    *status_message = Some(format!("Restored '{}' to original path", entry.filename));
+                    let msg = if keep_vault {
+                        format!("Restored snapshot of '{}' (reflink/copy)", entry.filename)
+                    } else {
+                        format!("Restored '{}' to original path", entry.filename)
+                    };
+                    *status_message = Some(msg);
                     *entries = db.list_active(None).unwrap_or_default();
                     *history_entries = db.list_history(None).unwrap_or_default();
                     if history_table_state.selected().is_none() && !history_entries.is_empty() {
                         history_table_state.select(Some(0));
                     }
-                    if sel >= entries.len() && !entries.is_empty() {
+                    if !keep_vault && sel >= entries.len() && !entries.is_empty() {
                         table_state.select(Some(entries.len() - 1));
-                    }
-                    *view_mode = ViewMode::Browsing;
-                }
-                Err(e) => {
-                    *status_message = Some(format!("Error: {}", e));
-                    *view_mode = ViewMode::Browsing;
-                }
-            }
-        }
-        1 => {
-            // Restore (Keep vault copy / Reflink)
-            let restore_mgr = RestoreManager::new(db);
-            match restore_mgr.restore_entry(&entry, true, false) {
-                Ok(_) => {
-                    *status_message = Some(format!("Restored snapshot of '{}' (reflink/copy)", entry.filename));
-                    *entries = db.list_active(None).unwrap_or_default();
-                    *history_entries = db.list_history(None).unwrap_or_default();
-                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
-                        history_table_state.select(Some(0));
                     }
                     *view_mode = ViewMode::Browsing;
                 }
@@ -1001,15 +945,7 @@ fn execute_action(
         }
         3 => {
             // Purge permanently
-            let vault_path = Path::new(&entry.vault_path);
-            if vault_path.exists() {
-                if entry.is_directory {
-                    std::fs::remove_dir_all(vault_path).ok();
-                } else {
-                    std::fs::remove_file(vault_path).ok();
-                }
-            }
-            db.mark_purged(entry.id).ok();
+            db.purge_entry(&entry).ok();
             *status_message = Some(format!("Purged '{}'", entry.filename));
             *entries = db.list_active(None).unwrap_or_default();
             *history_entries = db.list_history(None).unwrap_or_default();

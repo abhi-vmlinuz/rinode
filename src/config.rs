@@ -4,24 +4,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct StorageConfig {
     #[serde(default = "default_retention_days")]
     pub retention_days: u32,
-    #[serde(default = "default_max_vault_size_gb")]
-    pub max_vault_size_gb: u64,
-    #[serde(default = "default_max_hash_file_size_mb")]
-    pub max_hash_file_size_mb: u64,
 }
 
 fn default_retention_days() -> u32 {
     14
-}
-fn default_max_vault_size_gb() -> u64 {
-    20
-}
-fn default_max_hash_file_size_mb() -> u64 {
-    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,8 +80,6 @@ impl Default for Config {
     fn default() -> Self {
         let storage = StorageConfig {
             retention_days: default_retention_days(),
-            max_vault_size_gb: default_max_vault_size_gb(),
-            max_hash_file_size_mb: default_max_hash_file_size_mb(),
         };
         let exclusions = ExclusionsConfig {
             system_paths: default_system_paths(),

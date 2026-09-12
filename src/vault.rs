@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::db::{Db, EntryRecord, NewEntry};
 use crate::hasher::compute_quick_fingerprint;
-use crate::syscalls::{read_symlink_target, renameat2_path, statx_path};
+use crate::syscalls::{renameat2_path, statx_path};
 
 pub struct VaultManager {
     config: Config,
@@ -82,7 +82,12 @@ impl VaultManager {
             .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
             .collect();
         let now_nanos = Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let rand_val: u32 = rand::random();
+        let mut rand_bytes = [0u8; 4];
+        let rand_val = if unsafe { libc::getrandom(rand_bytes.as_mut_ptr() as *mut libc::c_void, 4, libc::GRND_NONBLOCK) } == 4 {
+            u32::from_ne_bytes(rand_bytes)
+        } else {
+            std::process::id() ^ (now_nanos as u32)
+        };
         format!("{}__{}_{}_{}_{:06x}", sanitized, inode, dev, now_nanos, rand_val & 0xffffff)
     }
 
@@ -114,7 +119,7 @@ impl VaultManager {
 
         // Handle Symlinks
         if info.is_symlink {
-            let symlink_target = read_symlink_target(&abs_path)?;
+            let symlink_target = fs::read_link(&abs_path)?.to_string_lossy().to_string();
             let new_entry = NewEntry {
                 dev_major: info.dev_major,
                 dev_minor: info.dev_minor,
@@ -127,7 +132,6 @@ impl VaultManager {
                 uid: info.uid,
                 gid: info.gid,
                 quick_fingerprint: None,
-                full_hash: None,
                 vault_path: "".to_string(),
                 deleted_at: Utc::now(),
                 status: "PRESERVED".to_string(),
@@ -184,7 +188,6 @@ impl VaultManager {
             uid: info.uid,
             gid: info.gid,
             quick_fingerprint,
-            full_hash: None,
             vault_path: vault_dest.to_string_lossy().to_string(),
             deleted_at: Utc::now(),
             status: "PRESERVED".to_string(),

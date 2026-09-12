@@ -3,6 +3,10 @@ use rusqlite::{params, Connection, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const SELECT_COLS: &str = "id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename, \
+    file_size, mode, uid, gid, quick_fingerprint, vault_path, deleted_at, status, \
+    is_directory, symlink_target, link_type, restored_at, purged_at";
+
 #[derive(Debug, Clone)]
 pub struct NewEntry {
     pub dev_major: u32,
@@ -16,7 +20,6 @@ pub struct NewEntry {
     pub uid: u32,
     pub gid: u32,
     pub quick_fingerprint: Option<String>,
-    pub full_hash: Option<String>,
     pub vault_path: String,
     pub deleted_at: DateTime<Utc>,
     pub status: String,
@@ -39,7 +42,6 @@ pub struct EntryRecord {
     pub uid: u32,
     pub gid: u32,
     pub quick_fingerprint: Option<String>,
-    pub full_hash: Option<String>,
     pub vault_path: String,
     pub deleted_at: DateTime<Utc>,
     pub status: String,
@@ -97,7 +99,6 @@ impl Db {
                 uid INTEGER NOT NULL,
                 gid INTEGER NOT NULL,
                 quick_fingerprint TEXT,
-                full_hash TEXT,
                 vault_path TEXT NOT NULL,
                 deleted_at TEXT NOT NULL,
                 status TEXT NOT NULL CHECK(status IN ('PRESERVED', 'RESTORED', 'PURGED')),
@@ -130,10 +131,10 @@ impl Db {
             INSERT INTO entries (
                 dev_major, dev_minor, mnt_id, inode_no, original_path,
                 filename, file_size, mode, uid, gid, quick_fingerprint,
-                full_hash, vault_path, deleted_at, status, is_directory,
+                vault_path, deleted_at, status, is_directory,
                 symlink_target, link_type
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
             )
             ",
             params![
@@ -148,7 +149,6 @@ impl Db {
                 entry.uid,
                 entry.gid,
                 entry.quick_fingerprint,
-                entry.full_hash,
                 entry.vault_path,
                 entry.deleted_at.to_rfc3339(),
                 entry.status,
@@ -168,40 +168,8 @@ impl Db {
         };
 
         let sql = format!(
-            "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                    file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                    deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-             FROM entries
-             WHERE status = 'PRESERVED'
-             ORDER BY deleted_at DESC {}",
-            limit_clause
-        );
-
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
-
-        let mut entries = Vec::new();
-        for r in rows {
-            entries.push(r?);
-        }
-        Ok(entries)
-    }
-
-    #[allow(dead_code)]
-    pub fn list_restored(&self, limit: Option<usize>) -> Result<Vec<EntryRecord>> {
-        let limit_clause = match limit {
-            Some(n) => format!("LIMIT {}", n),
-            None => "".to_string(),
-        };
-
-        let sql = format!(
-            "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                    file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                    deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-             FROM entries
-             WHERE status = 'RESTORED'
-             ORDER BY COALESCE(restored_at, deleted_at) DESC, id DESC {}",
-            limit_clause
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' ORDER BY deleted_at DESC {}",
+            SELECT_COLS, limit_clause
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
@@ -221,13 +189,9 @@ impl Db {
         };
 
         let sql = format!(
-            "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                    file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                    deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-             FROM entries
-             WHERE status IN ('RESTORED', 'PURGED')
+            "SELECT {} FROM entries WHERE status IN ('RESTORED', 'PURGED') \
              ORDER BY COALESCE(purged_at, restored_at, deleted_at) DESC, id DESC {}",
-            limit_clause
+            SELECT_COLS, limit_clause
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
@@ -247,12 +211,8 @@ impl Db {
         };
 
         let sql = format!(
-            "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                    file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                    deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-             FROM entries
-             ORDER BY id DESC {}",
-            limit_clause
+            "SELECT {} FROM entries ORDER BY id DESC {}",
+            SELECT_COLS, limit_clause
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
@@ -266,12 +226,9 @@ impl Db {
     }
 
     pub fn get_by_id(&self, id: i64) -> Result<Option<EntryRecord>> {
-        let sql = "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                          file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                          deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-                   FROM entries WHERE id = ?1";
+        let sql = format!("SELECT {} FROM entries WHERE id = ?1", SELECT_COLS);
 
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![id], |row| Self::row_to_record(row))?;
 
         match rows.next() {
@@ -281,15 +238,14 @@ impl Db {
     }
 
     pub fn find_by_filename(&self, name: &str) -> Result<Vec<EntryRecord>> {
-        let sql = "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                          file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                          deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-                   FROM entries
-                   WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path LIKE ?2)
-                   ORDER BY deleted_at DESC";
+        let sql = format!(
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path LIKE ?2) \
+             ORDER BY deleted_at DESC",
+            SELECT_COLS
+        );
 
         let search_pattern = format!("%{}", name);
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![name, search_pattern], |row| Self::row_to_record(row))?;
 
         let mut entries = Vec::new();
@@ -317,16 +273,26 @@ impl Db {
         Ok(())
     }
 
+    pub fn purge_entry(&self, entry: &EntryRecord) -> Result<()> {
+        let vault_path = Path::new(&entry.vault_path);
+        if vault_path.exists() {
+            if entry.is_directory {
+                std::fs::remove_dir_all(vault_path).ok();
+            } else {
+                std::fs::remove_file(vault_path).ok();
+            }
+        }
+        self.mark_purged(entry.id)
+    }
+
     pub fn get_expired(&self, days: u32) -> Result<Vec<EntryRecord>> {
         let cutoff = Utc::now() - chrono::Duration::days(days as i64);
-        let sql = "SELECT id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
-                          file_size, mode, uid, gid, quick_fingerprint, full_hash, vault_path,
-                          deleted_at, status, is_directory, symlink_target, link_type, restored_at, purged_at
-                   FROM entries
-                   WHERE status = 'PRESERVED' AND deleted_at < ?1
-                   ORDER BY deleted_at ASC";
+        let sql = format!(
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND deleted_at < ?1 ORDER BY deleted_at ASC",
+            SELECT_COLS
+        );
 
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![cutoff.to_rfc3339()], |row| Self::row_to_record(row))?;
 
         let mut entries = Vec::new();
@@ -337,19 +303,19 @@ impl Db {
     }
 
     fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<EntryRecord> {
-        let deleted_at_str: String = row.get(14)?;
+        let deleted_at_str: String = row.get(13)?;
         let deleted_at = DateTime::parse_from_rfc3339(&deleted_at_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
 
         let restored_at: Option<DateTime<Utc>> = row
-            .get::<_, Option<String>>(19)
+            .get::<_, Option<String>>(18)
             .ok()
             .flatten()
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)));
 
         let purged_at: Option<DateTime<Utc>> = row
-            .get::<_, Option<String>>(20)
+            .get::<_, Option<String>>(19)
             .ok()
             .flatten()
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)));
@@ -367,13 +333,12 @@ impl Db {
             uid: row.get(9)?,
             gid: row.get(10)?,
             quick_fingerprint: row.get(11)?,
-            full_hash: row.get(12)?,
-            vault_path: row.get(13)?,
+            vault_path: row.get(12)?,
             deleted_at,
-            status: row.get(15)?,
-            is_directory: row.get(16)?,
-            symlink_target: row.get(17)?,
-            link_type: row.get(18)?,
+            status: row.get(14)?,
+            is_directory: row.get(15)?,
+            symlink_target: row.get(16)?,
+            link_type: row.get(17)?,
             restored_at,
             purged_at,
         })
