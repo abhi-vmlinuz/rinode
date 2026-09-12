@@ -411,16 +411,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                 })).height(1);
 
                 let history_rows = history_entries.iter().enumerate().map(|(i, entry)| {
-                    let is_sel = i == history_selected_idx;
-                    let prefix = if is_sel {
-                        if active_pane == ActivePane::History { "▶ " } else { "▷ " }
-                    } else {
-                        "  "
-                    };
-                    let style = if is_sel && active_pane == ActivePane::History {
+                    let is_sel = i == history_selected_idx && active_pane == ActivePane::History;
+                    let style = if is_sel {
                         Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
-                    } else if is_sel {
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     };
@@ -447,11 +440,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
                     let time_str = time_dt.with_timezone(&Local).format(time_format).to_string();
 
-                    let name_display = format!("{}{}", prefix, entry.filename);
-
                     Row::new(vec![
                         Span::styled(entry.id.to_string(), style),
-                        Span::styled(name_display, style),
+                        Span::styled(&entry.filename, style),
                         Span::styled(entry.inode_no.to_string(), style),
                         Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         Span::styled(time_str, style),
