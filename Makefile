@@ -6,7 +6,7 @@ BASHCOMPDIR ?= /usr/share/bash-completion/completions
 FISHCOMPDIR ?= /usr/share/fish/vendor_completions.d
 ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
-CARGO ?= cargo
+CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/home/$$SUDO_USER/.cargo/bin/cargo" ]; then echo "/home/$$SUDO_USER/.cargo/bin/cargo"; elif [ -x "$$HOME/.cargo/bin/cargo" ]; then echo "$$HOME/.cargo/bin/cargo"; else echo cargo; fi)
 
 .PHONY: all build release install install-user uninstall test clean whitepaper
 
@@ -15,7 +15,10 @@ all: build
 build:
 	$(CARGO) build --release
 
-install: build
+target/release/rinode:
+	$(CARGO) build --release
+
+install: target/release/rinode
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 target/release/rinode $(DESTDIR)$(BINDIR)/rinode
 	install -d $(DESTDIR)$(MANDIR)
@@ -52,7 +55,7 @@ install: build
 	@echo "  rinode init fish --alias-rm | source"
 	@echo "------------------------------------------------------------"
 
-install-user: build
+install-user: target/release/rinode
 	install -d $(HOME)/.local/bin
 	install -m 755 target/release/rinode $(HOME)/.local/bin/rinode
 	install -d $(HOME)/.local/share/man/man1
