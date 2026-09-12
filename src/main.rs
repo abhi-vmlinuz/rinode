@@ -146,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             table.set_header(headers);
 
             for entry in entries {
-                let formatted_date = entry.deleted_at.format("%Y-%m-%d %H:%M:%S").to_string();
+                let formatted_date = entry.deleted_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string();
                 let display_size = if entry.is_directory {
                     "<DIR>".to_string()
                 } else if entry.link_type == "SYMLINK" {
@@ -215,7 +215,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("  Owner UID / GID:   {} / {}", entry.uid, entry.gid);
                     println!("  Link / Move Type:  {}", entry.link_type);
                     println!("  Status:            {}", entry.status);
-                    println!("  Deleted At:        {}", entry.deleted_at.to_rfc3339());
+                    println!("  Deleted At:        {}", entry.deleted_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S %z"));
+                    if let Some(restored_at) = entry.restored_at {
+                        println!("  Restored At:       {}", restored_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S %z"));
+                    }
+                    if let Some(purged_at) = entry.purged_at {
+                        println!("  Purged At:         {}", purged_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S %z"));
+                    }
                     if let Some(target) = entry.symlink_target {
                         println!("  Symlink Target:    {}", target);
                     }

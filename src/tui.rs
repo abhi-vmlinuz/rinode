@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::Local;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -31,7 +31,7 @@ enum ViewMode {
 #[derive(PartialEq, Copy, Clone)]
 enum ActivePane {
     Preserved,
-    Restored,
+    History,
 }
 
 pub fn run_tui(db: &Db, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -95,14 +95,14 @@ fn main_loop<B: ratatui::backend::Backend>(
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut entries = db.list_active(None)?;
-    let mut restored_entries = db.list_restored(None)?;
+    let mut history_entries = db.list_history(None)?;
     let mut table_state = TableState::default();
     if !entries.is_empty() {
         table_state.select(Some(0));
     }
-    let mut restored_table_state = TableState::default();
-    if !restored_entries.is_empty() {
-        restored_table_state.select(Some(0));
+    let mut history_table_state = TableState::default();
+    if !history_entries.is_empty() {
+        history_table_state.select(Some(0));
     }
 
     let mut active_pane = ActivePane::Preserved;
@@ -125,7 +125,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .split(size);
 
             // 1. TOP HEADER
-            let time_str = Utc::now().format("%H:%M:%S").to_string();
+            let time_str = Local::now().format("%H:%M:%S").to_string();
             let header_line = Line::from(vec![
                 Span::styled("• ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
                 Span::styled("rinode live  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
@@ -136,8 +136,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ),
                 Span::styled("  |  ", Style::default().fg(Color::LightCyan)),
                 Span::styled(
-                    format!("{} restored", restored_entries.len()),
-                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+                    format!("{} in history", history_entries.len()),
+                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
                 ),
             ]);
             let header_border = Line::from(Span::styled(
@@ -147,7 +147,7 @@ fn main_loop<B: ratatui::backend::Backend>(
             let header_widget = Paragraph::new(vec![header_line, header_border]);
             f.render_widget(header_widget, root_chunks[0]);
 
-            // 2. CENTER SPLIT (LHS: Table, RHS: Details & Restore History)
+            // 2. CENTER SPLIT (LHS: Table, RHS: Details & History)
             let center_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
@@ -155,7 +155,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             // LHS Table
             let selected_idx = table_state.selected().unwrap_or(0);
-            let restored_selected_idx = restored_table_state.selected().unwrap_or(0);
+            let history_selected_idx = history_table_state.selected().unwrap_or(0);
 
             let header_cells = ["ID", "NAME", "SIZE", "DELETED AT", "INODE"]
                 .iter()
@@ -186,7 +186,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 };
 
                 let name_display = format!("{}{}", prefix, entry.filename);
-                let date_text = entry.deleted_at.format("%Y-%m-%d %H:%M").to_string();
+                let date_text = entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
 
                 let style = if is_selected && active_pane == ActivePane::Preserved {
                     Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
@@ -220,7 +220,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             f.render_widget(table, center_chunks[0]);
 
-            // RHS Vertical Split: Top Details, Bottom Restore History
+            // RHS Vertical Split: Top Details, Bottom History
             let details_height = if root_chunks[1].height > 25 {
                 15
             } else {
@@ -234,9 +234,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ])
                 .split(center_chunks[1]);
 
-            let (current_entry, is_restored_view) = match active_pane {
+            let (current_entry, is_history_view) = match active_pane {
                 ActivePane::Preserved => (entries.get(selected_idx), false),
-                ActivePane::Restored => (restored_entries.get(restored_selected_idx), true),
+                ActivePane::History => (history_entries.get(history_selected_idx), true),
             };
 
             let details_block = Block::default()
@@ -252,13 +252,21 @@ fn main_loop<B: ratatui::backend::Backend>(
                     "FILE"
                 };
 
-                let title_text = if is_restored_view {
-                    "ENTRY DETAILS (RESTORED)"
+                let title_text = if is_history_view {
+                    match entry.status.as_str() {
+                        "RESTORED" => "ENTRY DETAILS (RESTORED)",
+                        "PURGED" => "ENTRY DETAILS (PURGED)",
+                        _ => "ENTRY DETAILS (HISTORY)",
+                    }
                 } else {
                     "ENTRY DETAILS"
                 };
-                let title_color = if is_restored_view {
-                    Color::LightGreen
+                let title_color = if is_history_view {
+                    match entry.status.as_str() {
+                        "RESTORED" => Color::LightGreen,
+                        "PURGED" => Color::LightRed,
+                        _ => Color::LightCyan,
+                    }
                 } else {
                     Color::LightCyan
                 };
@@ -306,20 +314,32 @@ fn main_loop<B: ratatui::backend::Backend>(
                     ]),
                     Line::from(vec![
                         Span::styled("Deleted:     ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(entry.deleted_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::White)),
+                        Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::White)),
                     ]),
                 ];
 
                 if let Some(restored_at) = entry.restored_at {
                     details_lines.push(Line::from(vec![
                         Span::styled("Restored:    ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(restored_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(), Style::default().fg(Color::LightGreen)),
+                        Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::LightGreen)),
                     ]));
                 }
 
+                if let Some(purged_at) = entry.purged_at {
+                    details_lines.push(Line::from(vec![
+                        Span::styled("Purged:      ", Style::default().fg(Color::LightCyan)),
+                        Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::LightRed)),
+                    ]));
+                }
+
+                let status_color = match entry.status.as_str() {
+                    "RESTORED" => Color::LightGreen,
+                    "PURGED" => Color::LightRed,
+                    _ => Color::LightCyan,
+                };
                 details_lines.push(Line::from(vec![
                     Span::styled("Status:      ", Style::default().fg(Color::LightCyan)),
-                    Span::styled(&entry.status, Style::default().fg(if is_restored_view { Color::LightCyan } else { Color::LightGreen }).add_modifier(Modifier::BOLD)),
+                    Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                 ]));
 
                 if let Some(target) = &entry.symlink_target {
@@ -352,13 +372,13 @@ fn main_loop<B: ratatui::backend::Backend>(
                 f.render_widget(empty_para, right_chunks[0]);
             }
 
-            // Bottom Right Pane: RESTORE HISTORY
-            let history_border_color = if active_pane == ActivePane::Restored {
+            // Bottom Right Pane: HISTORY
+            let history_border_color = if active_pane == ActivePane::History {
                 Color::LightCyan
             } else {
                 Color::Cyan
             };
-            let history_title_color = if active_pane == ActivePane::Restored {
+            let history_title_color = if active_pane == ActivePane::History {
                 Color::LightCyan
             } else {
                 Color::LightGreen
@@ -368,36 +388,36 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .borders(Borders::LEFT | Borders::TOP)
                 .border_style(Style::default().fg(history_border_color))
                 .title(Span::styled(
-                    format!(" RESTORE HISTORY ({}) ", restored_entries.len()),
+                    format!(" HISTORY ({}) ", history_entries.len()),
                     Style::default().fg(history_title_color).add_modifier(Modifier::BOLD),
                 ));
 
-            if restored_entries.is_empty() {
+            if history_entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  No restored files in history.", Style::default().fg(Color::LightCyan))),
-                    Line::from(Span::styled("  Files restored with [r] will appear here.", Style::default().fg(Color::White))),
+                    Line::from(Span::styled("  No records in history.", Style::default().fg(Color::LightCyan))),
+                    Line::from(Span::styled("  Restored or purged files will appear here.", Style::default().fg(Color::White))),
                 ])
                 .block(history_block);
                 f.render_widget(empty_para, right_chunks[1]);
             } else {
-                let history_header = Row::new(["ID", "NAME", "INODE", "RESTORED"].iter().map(|h| {
+                let history_header = Row::new(["ID", "NAME", "INODE", "STATUS", "TIME"].iter().map(|h| {
                     Span::styled(
                         *h,
                         Style::default()
-                            .fg(if active_pane == ActivePane::Restored { Color::LightCyan } else { Color::Cyan })
+                            .fg(if active_pane == ActivePane::History { Color::LightCyan } else { Color::Cyan })
                             .add_modifier(Modifier::BOLD),
                     )
                 })).height(1);
 
-                let history_rows = restored_entries.iter().enumerate().map(|(i, entry)| {
-                    let is_sel = i == restored_selected_idx;
+                let history_rows = history_entries.iter().enumerate().map(|(i, entry)| {
+                    let is_sel = i == history_selected_idx;
                     let prefix = if is_sel {
-                        if active_pane == ActivePane::Restored { "▶ " } else { "▷ " }
+                        if active_pane == ActivePane::History { "▶ " } else { "▷ " }
                     } else {
                         "  "
                     };
-                    let style = if is_sel && active_pane == ActivePane::Restored {
+                    let style = if is_sel && active_pane == ActivePane::History {
                         Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
                     } else if is_sel {
                         Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
@@ -405,9 +425,27 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Style::default().fg(Color::White)
                     };
 
-                    let time_str = entry.restored_at
-                        .map(|dt| dt.format("%m-%d %H:%M").to_string())
-                        .unwrap_or_else(|| entry.deleted_at.format("%m-%d %H:%M").to_string());
+                    let status_color = match entry.status.as_str() {
+                        "RESTORED" => Color::LightGreen,
+                        "PURGED" => Color::LightRed,
+                        _ => Color::LightCyan,
+                    };
+
+                    let time_dt = if entry.status == "RESTORED" {
+                        entry.restored_at.unwrap_or(entry.deleted_at)
+                    } else if entry.status == "PURGED" {
+                        entry.purged_at.unwrap_or(entry.deleted_at)
+                    } else {
+                        entry.deleted_at
+                    };
+
+                    let pane_w = right_chunks[1].width;
+                    let time_format = if pane_w >= 46 {
+                        "%m-%d %H:%M"
+                    } else {
+                        "%H:%M"
+                    };
+                    let time_str = time_dt.with_timezone(&Local).format(time_format).to_string();
 
                     let name_display = format!("{}{}", prefix, entry.filename);
 
@@ -415,17 +453,22 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Span::styled(entry.id.to_string(), style),
                         Span::styled(name_display, style),
                         Span::styled(entry.inode_no.to_string(), style),
+                        Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         Span::styled(time_str, style),
                     ])
                 });
 
+                let pane_w = right_chunks[1].width;
+                let time_len = if pane_w >= 46 { 11 } else { 5 };
+
                 let history_table = Table::new(
                     history_rows,
                     [
-                        Constraint::Length(4),
-                        Constraint::Percentage(45),
-                        Constraint::Length(10),
-                        Constraint::Min(11),
+                        Constraint::Length(3),
+                        Constraint::Fill(1),
+                        Constraint::Length(8),
+                        Constraint::Length(8),
+                        Constraint::Length(time_len),
                     ],
                 )
                 .header(history_header)
@@ -537,7 +580,7 @@ fn main_loop<B: ratatui::backend::Backend>(
             if view_mode == ViewMode::InspectModal {
                 let current_inspected = match active_pane {
                     ActivePane::Preserved => entries.get(selected_idx),
-                    ActivePane::Restored => restored_entries.get(restored_selected_idx),
+                    ActivePane::History => history_entries.get(history_selected_idx),
                 };
                 if let Some(entry) = current_inspected {
                     let popup_area = centered_rect(65, 60, size);
@@ -551,6 +594,12 @@ fn main_loop<B: ratatui::backend::Backend>(
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Cyan));
+
+                    let status_color = match entry.status.as_str() {
+                        "RESTORED" => Color::LightGreen,
+                        "PURGED" => Color::LightRed,
+                        _ => Color::LightCyan,
+                    };
 
                     let mut inspect_lines = vec![
                         Line::from(""),
@@ -592,18 +641,25 @@ fn main_loop<B: ratatui::backend::Backend>(
                         ]),
                         Line::from(vec![
                             Span::styled("  Vault Status:       ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(&entry.status, Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                            Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
                             Span::styled("  Deletion Time:      ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(entry.deleted_at.to_rfc3339(), Style::default().fg(Color::White)),
+                            Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::White)),
                         ]),
                     ];
 
                     if let Some(restored_at) = entry.restored_at {
                         inspect_lines.push(Line::from(vec![
                             Span::styled("  Restoration Time:   ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(restored_at.to_rfc3339(), Style::default().fg(Color::LightGreen)),
+                            Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::LightGreen)),
+                        ]));
+                    }
+
+                    if let Some(purged_at) = entry.purged_at {
+                        inspect_lines.push(Line::from(vec![
+                            Span::styled("  Purge Time:         ", Style::default().fg(Color::LightCyan)),
+                            Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::LightRed)),
                         ]));
                     }
 
@@ -683,14 +739,14 @@ fn main_loop<B: ratatui::backend::Backend>(
                         KeyCode::Char('q') => break,
                         KeyCode::Tab | KeyCode::BackTab => {
                             if active_pane == ActivePane::Preserved {
-                                if !restored_entries.is_empty() {
-                                    active_pane = ActivePane::Restored;
-                                    if restored_table_state.selected().is_none() {
-                                        restored_table_state.select(Some(0));
+                                if !history_entries.is_empty() {
+                                    active_pane = ActivePane::History;
+                                    if history_table_state.selected().is_none() {
+                                        history_table_state.select(Some(0));
                                     }
                                     status_message = None;
                                 } else {
-                                    status_message = Some("No restored files in history yet".into());
+                                    status_message = Some("No records in history yet".into());
                                 }
                             } else {
                                 active_pane = ActivePane::Preserved;
@@ -699,19 +755,19 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('l') | KeyCode::Right => {
                             if active_pane == ActivePane::Preserved {
-                                if !restored_entries.is_empty() {
-                                    active_pane = ActivePane::Restored;
-                                    if restored_table_state.selected().is_none() {
-                                        restored_table_state.select(Some(0));
+                                if !history_entries.is_empty() {
+                                    active_pane = ActivePane::History;
+                                    if history_table_state.selected().is_none() {
+                                        history_table_state.select(Some(0));
                                     }
                                     status_message = None;
                                 } else {
-                                    status_message = Some("No restored files in history yet".into());
+                                    status_message = Some("No records in history yet".into());
                                 }
                             }
                         }
                         KeyCode::Char('h') | KeyCode::Left => {
-                            if active_pane == ActivePane::Restored {
+                            if active_pane == ActivePane::History {
                                 active_pane = ActivePane::Preserved;
                                 status_message = None;
                             }
@@ -726,11 +782,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         status_message = None;
                                     }
                                 }
-                                ActivePane::Restored => {
-                                    if !restored_entries.is_empty() {
-                                        let curr = restored_table_state.selected().unwrap_or(0);
-                                        let next = (curr + 1).min(restored_entries.len() - 1);
-                                        restored_table_state.select(Some(next));
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        let curr = history_table_state.selected().unwrap_or(0);
+                                        let next = (curr + 1).min(history_entries.len() - 1);
+                                        history_table_state.select(Some(next));
                                         status_message = None;
                                     }
                                 }
@@ -746,11 +802,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         status_message = None;
                                     }
                                 }
-                                ActivePane::Restored => {
-                                    if !restored_entries.is_empty() {
-                                        let curr = restored_table_state.selected().unwrap_or(0);
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        let curr = history_table_state.selected().unwrap_or(0);
                                         let prev = curr.saturating_sub(1);
-                                        restored_table_state.select(Some(prev));
+                                        history_table_state.select(Some(prev));
                                         status_message = None;
                                     }
                                 }
@@ -764,8 +820,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         action_index = 0;
                                     }
                                 }
-                                ActivePane::Restored => {
-                                    if !restored_entries.is_empty() {
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
                                         view_mode = ViewMode::InspectModal;
                                     }
                                 }
@@ -781,9 +837,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                                             Ok(_) => {
                                                 status_message = Some(format!("Restored '{}' to original path", entry.filename));
                                                 entries = db.list_active(None)?;
-                                                restored_entries = db.list_restored(None)?;
-                                                if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
-                                                    restored_table_state.select(Some(0));
+                                                history_entries = db.list_history(None)?;
+                                                if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                                                    history_table_state.select(Some(0));
                                                 }
                                                 if idx >= entries.len() && !entries.is_empty() {
                                                     table_state.select(Some(entries.len() - 1));
@@ -813,6 +869,10 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         db.mark_purged(entry.id).ok();
                                         status_message = Some(format!("Purged '{}'", entry.filename));
                                         entries = db.list_active(None)?;
+                                        history_entries = db.list_history(None)?;
+                                        if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                                            history_table_state.select(Some(0));
+                                        }
                                         if idx >= entries.len() && !entries.is_empty() {
                                             table_state.select(Some(entries.len() - 1));
                                         }
@@ -838,26 +898,26 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('1') => {
                             action_index = 0;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('2') => {
                             action_index = 1;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('3') => {
                             action_index = 2;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('4') => {
                             action_index = 3;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Char('5') => {
                             action_index = 4;
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         KeyCode::Enter => {
-                            execute_action(action_index, &mut entries, &mut table_state, &mut restored_entries, &mut restored_table_state, &mut view_mode, &mut status_message, db);
+                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
                         }
                         _ => {}
                     },
@@ -887,8 +947,8 @@ fn execute_action(
     action_idx: usize,
     entries: &mut Vec<EntryRecord>,
     table_state: &mut TableState,
-    restored_entries: &mut Vec<EntryRecord>,
-    restored_table_state: &mut TableState,
+    history_entries: &mut Vec<EntryRecord>,
+    history_table_state: &mut TableState,
     view_mode: &mut ViewMode,
     status_message: &mut Option<String>,
     db: &Db,
@@ -910,9 +970,9 @@ fn execute_action(
                 Ok(_) => {
                     *status_message = Some(format!("Restored '{}' to original path", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
-                    *restored_entries = db.list_restored(None).unwrap_or_default();
-                    if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
-                        restored_table_state.select(Some(0));
+                    *history_entries = db.list_history(None).unwrap_or_default();
+                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                        history_table_state.select(Some(0));
                     }
                     if sel >= entries.len() && !entries.is_empty() {
                         table_state.select(Some(entries.len() - 1));
@@ -932,9 +992,9 @@ fn execute_action(
                 Ok(_) => {
                     *status_message = Some(format!("Restored snapshot of '{}' (reflink/copy)", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
-                    *restored_entries = db.list_restored(None).unwrap_or_default();
-                    if restored_table_state.selected().is_none() && !restored_entries.is_empty() {
-                        restored_table_state.select(Some(0));
+                    *history_entries = db.list_history(None).unwrap_or_default();
+                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                        history_table_state.select(Some(0));
                     }
                     *view_mode = ViewMode::Browsing;
                 }
@@ -961,6 +1021,10 @@ fn execute_action(
             db.mark_purged(entry.id).ok();
             *status_message = Some(format!("Purged '{}'", entry.filename));
             *entries = db.list_active(None).unwrap_or_default();
+            *history_entries = db.list_history(None).unwrap_or_default();
+            if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                history_table_state.select(Some(0));
+            }
             if sel >= entries.len() && !entries.is_empty() {
                 table_state.select(Some(entries.len() - 1));
             }
