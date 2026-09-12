@@ -33,17 +33,11 @@ Standard Linux deletion tools have two main drawbacks:
    - **Move back (default)**: Recreates any missing parent directories (`mkdir -p`) and moves the inode back to its original location via `rename()`.
    - **Snapshot fork (`--keep-vault`)**: On filesystems that support Copy-on-Write (Btrfs, XFS), it issues an `ioctl(FICLONE)` system call to point a new directory entry to the existing data blocks with zero duplication. On ext4, it copies the file.
 
-### Technical Whitepaper
+### Technical Specification
 
 For an in-depth systems document analyzing the Linux inode lifecycle, extent tree deallocation, VFS link count semantics, and atomic directory transaction flows:
 
-- **[rinode Architecture & VFS Semantics Whitepaper (PDF)](docs/whitepaper.pdf)**
-- **[LaTeX Source](docs/whitepaper.tex)**
-
-Compile the paper directly from source:
-```bash
-make whitepaper
-```
+- **[rinode Architecture & VFS Specification (PDF)](docs/whitepaper.pdf)**
 
 ## Installation
 
@@ -88,17 +82,25 @@ Running `rinode` without arguments opens a split-screen terminal interface:
 rinode
 ```
 
+<p align="center">
+  <img src="assets/dashboard.png" alt="rinode Interactive Dashboard" width="100%">
+</p>
+
 - **Left pane**: Table of preserved files (ID, filename, size, deletion time, inode number).
 - **Right pane**:
   - **Upper section (`ENTRY DETAILS`)**: Complete inode metadata, permissions, ownership, timestamps, and vault path.
-  - **Lower section (`RESTORE HISTORY`)**: Audit table of previously restored files, with original inode and restoration timestamps.
+  - **Lower section (`HISTORY`)**: Audit table of previously restored and purged files, with status and local timestamps.
 - **Navigation & focus**:
-  - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Preserved Files and Restore History.
+  - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Preserved Files and History.
   - `j` / `k` navigate rows within the active pane.
 - **Actions**:
   - Press `Enter` on a preserved file to open the action menu (Restore, Reflink fork, Inspect, Purge, Copy path).
-  - Press `Enter` on a restored file in history to inspect its metadata.
-  - Quick keys: `r` to restore, `x` to purge, `e` to view active exclusion rules, `/` to filter, `q` to exit.
+  - Press `Enter` on a file in history to inspect its metadata.
+  - Quick keys: `r` to restore, `x` to purge, `e` to view active exclusion rules, `q` to exit.
+
+<p align="center">
+  <img src="assets/actions_menu.png" alt="rinode Action Submenu and History" width="100%">
+</p>
 
 ### Command-line interface
 
