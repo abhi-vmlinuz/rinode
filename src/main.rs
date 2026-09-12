@@ -165,6 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "PRESERVED" => Cell::new("PRESERVED").fg(Color::Green),
                         "RESTORED" => Cell::new("RESTORED").fg(Color::Cyan),
                         "PURGED" => Cell::new("PURGED").fg(Color::Red),
+                        "EXCLUDED" => Cell::new("EXCLUDED").fg(Color::Yellow),
                         _ => Cell::new(&entry.status),
                     };
                     row_cells.push(status_cell);
@@ -225,7 +226,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(fp) = entry.quick_fingerprint {
                         println!("  Fast Fingerprint:  {}", fp);
                     }
-                    println!("  Vault Location:    {}", entry.vault_path);
+                    let vault_loc = if entry.status == "EXCLUDED" {
+                        "(none - excluded by rule)"
+                    } else {
+                        &entry.vault_path
+                    };
+                    println!("  Vault Location:    {}", vault_loc);
                 }
                 None => {
                     eprintln!("rinode: no entry found with ID {}", id);

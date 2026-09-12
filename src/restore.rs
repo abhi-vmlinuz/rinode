@@ -36,6 +36,13 @@ pub fn restore_by_id_or_name(
 
 /// Perform the restoration of an entry
 pub fn restore_entry(db: &Db, entry: &EntryRecord, keep_vault: bool, force: bool) -> Result<()> {
+    if entry.status == "EXCLUDED" {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("Cannot restore '{}': file was excluded by config and permanently unlinked without vaulting", entry.filename),
+        ));
+    }
+
     let orig_path = PathBuf::from(&entry.original_path);
 
     // 1. Recreate parent directories if missing (mkdir -p)

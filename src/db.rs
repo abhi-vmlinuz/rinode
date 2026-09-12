@@ -101,10 +101,10 @@ impl Db {
                 quick_fingerprint TEXT,
                 vault_path TEXT NOT NULL,
                 deleted_at TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('PRESERVED', 'RESTORED', 'PURGED')),
+                status TEXT NOT NULL,
                 is_directory BOOLEAN NOT NULL DEFAULT 0,
                 symlink_target TEXT,
-                link_type TEXT NOT NULL CHECK(link_type IN ('RENAME_MOVE', 'SYMLINK', 'REFLINK', 'COPY')),
+                link_type TEXT NOT NULL,
                 restored_at TEXT,
                 purged_at TEXT
             );
@@ -121,6 +121,65 @@ impl Db {
         // Ensure restored_at and purged_at columns exist in databases created by earlier versions
         let _ = self.conn.execute("ALTER TABLE entries ADD COLUMN restored_at TEXT", []);
         let _ = self.conn.execute("ALTER TABLE entries ADD COLUMN purged_at TEXT", []);
+
+        // Migrate older databases having restrictive CHECK constraints on status
+        let has_old_check: bool = self.conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'",
+            [],
+            |row| {
+                let sql: String = row.get(0)?;
+                Ok(sql.contains("CHECK(status IN ('PRESERVED', 'RESTORED', 'PURGED'))"))
+            },
+        ).unwrap_or(false);
+
+        if has_old_check {
+            self.conn.execute_batch(
+                "
+                PRAGMA foreign_keys=off;
+                CREATE TABLE entries_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    dev_major INTEGER NOT NULL,
+                    dev_minor INTEGER NOT NULL,
+                    mnt_id INTEGER NOT NULL,
+                    inode_no INTEGER NOT NULL,
+                    original_path TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    mode INTEGER NOT NULL,
+                    uid INTEGER NOT NULL,
+                    gid INTEGER NOT NULL,
+                    quick_fingerprint TEXT,
+                    vault_path TEXT NOT NULL,
+                    deleted_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    is_directory BOOLEAN NOT NULL DEFAULT 0,
+                    symlink_target TEXT,
+                    link_type TEXT NOT NULL,
+                    restored_at TEXT,
+                    purged_at TEXT
+                );
+                INSERT INTO entries_v2 (
+                    id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
+                    file_size, mode, uid, gid, quick_fingerprint, vault_path, deleted_at,
+                    status, is_directory, symlink_target, link_type, restored_at, purged_at
+                )
+                SELECT
+                    id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename,
+                    file_size, mode, uid, gid, quick_fingerprint, vault_path, deleted_at,
+                    status, is_directory, symlink_target, link_type, restored_at, purged_at
+                FROM entries;
+                DROP TABLE entries;
+                ALTER TABLE entries_v2 RENAME TO entries;
+                CREATE INDEX IF NOT EXISTS idx_status ON entries(status);
+                CREATE INDEX IF NOT EXISTS idx_dev_inode ON entries(dev_major, dev_minor, inode_no);
+                CREATE INDEX IF NOT EXISTS idx_filename ON entries(filename);
+                CREATE INDEX IF NOT EXISTS idx_deleted_at ON entries(deleted_at);
+                CREATE INDEX IF NOT EXISTS idx_restored_at ON entries(restored_at);
+                CREATE INDEX IF NOT EXISTS idx_purged_at ON entries(purged_at);
+                PRAGMA foreign_keys=on;
+                ",
+            )?;
+        }
 
         Ok(())
     }
@@ -189,7 +248,7 @@ impl Db {
         };
 
         let sql = format!(
-            "SELECT {} FROM entries WHERE status IN ('RESTORED', 'PURGED') \
+            "SELECT {} FROM entries WHERE status IN ('RESTORED', 'PURGED', 'EXCLUDED') \
              ORDER BY COALESCE(purged_at, restored_at, deleted_at) DESC, id DESC {}",
             SELECT_COLS, limit_clause
         );

@@ -240,6 +240,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     match entry.status.as_str() {
                         "RESTORED" => "ENTRY DETAILS (RESTORED)",
                         "PURGED" => "ENTRY DETAILS (PURGED)",
+                        "EXCLUDED" => "ENTRY DETAILS (EXCLUDED)",
                         _ => "ENTRY DETAILS (HISTORY)",
                     }
                 } else {
@@ -249,6 +250,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     match entry.status.as_str() {
                         "RESTORED" => Color::LightGreen,
                         "PURGED" => Color::LightRed,
+                        "EXCLUDED" => Color::Yellow,
                         _ => Color::LightCyan,
                     }
                 } else {
@@ -319,6 +321,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let status_color = match entry.status.as_str() {
                     "RESTORED" => Color::LightGreen,
                     "PURGED" => Color::LightRed,
+                    "EXCLUDED" => Color::Yellow,
                     _ => Color::LightCyan,
                 };
                 details_lines.push(Line::from(vec![
@@ -340,10 +343,15 @@ fn main_loop<B: ratatui::backend::Backend>(
                     ]));
                 }
 
+                let vault_display = if entry.status == "EXCLUDED" {
+                    "(none - excluded by rule)"
+                } else {
+                    &entry.vault_path
+                };
                 details_lines.push(Line::from(""));
                 details_lines.push(Line::from(vec![
                     Span::styled("Vault:       ", Style::default().fg(Color::LightCyan)),
-                    Span::styled(&entry.vault_path, Style::default().fg(Color::White)),
+                    Span::styled(vault_display, Style::default().fg(Color::White)),
                 ]));
 
                 let details_para = Paragraph::new(details_lines).block(details_block);
@@ -405,6 +413,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let status_color = match entry.status.as_str() {
                         "RESTORED" => Color::LightGreen,
                         "PURGED" => Color::LightRed,
+                        "EXCLUDED" => Color::Yellow,
                         _ => Color::LightCyan,
                     };
 
@@ -573,6 +582,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let status_color = match entry.status.as_str() {
                         "RESTORED" => Color::LightGreen,
                         "PURGED" => Color::LightRed,
+                        "EXCLUDED" => Color::Yellow,
                         _ => Color::LightCyan,
                     };
 
@@ -638,13 +648,19 @@ fn main_loop<B: ratatui::backend::Backend>(
                         ]));
                     }
 
+                    let vault_display = if entry.status == "EXCLUDED" {
+                        "(none - excluded by rule)"
+                    } else {
+                        &entry.vault_path
+                    };
+
                     inspect_lines.push(Line::from(vec![
                         Span::styled("  Fast Fingerprint:   ", Style::default().fg(Color::LightCyan)),
                         Span::styled(entry.quick_fingerprint.as_deref().unwrap_or("none"), Style::default().fg(Color::White)),
                     ]));
                     inspect_lines.push(Line::from(vec![
                         Span::styled("  Vault File Path:    ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(&entry.vault_path, Style::default().fg(Color::White)),
+                        Span::styled(vault_display, Style::default().fg(Color::White)),
                     ]));
                     inspect_lines.push(Line::from(""));
                     inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));

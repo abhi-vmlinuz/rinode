@@ -120,7 +120,24 @@ echo -e "\n[TEST 5] Regex exclusion test..."
 echo "temporary junk" > cache.tmp
 
 "$BIN" rm cache.tmp
-echo "[+] Excluded file passed through exclusion filter properly."
+if [ -f cache.tmp ]; then
+    echo "[!] Error: cache.tmp was not removed!"
+    exit 1
+fi
+
+# Ensure it was tracked with EXCLUDED status in history
+if ! "$BIN" ls -a | grep "cache.tmp" | grep -q "EXCLUDED"; then
+    echo "[!] Error: cache.tmp not found in history with status EXCLUDED!"
+    exit 1
+fi
+
+# Ensure trying to restore it returns an error
+if "$BIN" restore cache.tmp 2>/dev/null; then
+    echo "[!] Error: Restoring an EXCLUDED file should have failed!"
+    exit 1
+fi
+
+echo "[+] Excluded file passed through exclusion filter properly and tracked in history."
 
 # TEST 6: Purge test
 echo -e "\n[TEST 6] Purge test..."
