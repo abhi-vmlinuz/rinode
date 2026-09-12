@@ -7,10 +7,12 @@ mkdir -p "$TEST_ROOT"
 cp "$HOME/projects/recent-inode/rinode.toml" "$TEST_ROOT/rinode.toml"
 cd "$TEST_ROOT"
 
-echo "=== RINODE INTEGRATION TESTS IN $TEST_ROOT ==="
+# Isolate test database, vault, and config completely from host system
+export XDG_DATA_HOME="$TEST_ROOT/data"
+export XDG_CONFIG_HOME="$TEST_ROOT/config"
+mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
 
-# Clean previous DB for test
-rm -rf "$HOME/.local/share/recent-inode/rinode.db"*
+echo "=== RINODE INTEGRATION TESTS IN $TEST_ROOT ==="
 
 # TEST 1: Single file deletion and restoration
 echo -e "\n[TEST 1] Single file deletion & restoration..."
