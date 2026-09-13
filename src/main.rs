@@ -35,6 +35,53 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+pub fn format_display_path(original_path: &str, max_refs: usize) -> String {
+    let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+    let path = std::path::Path::new(original_path);
+
+    let (is_home, rel_path) = if let Some(h) = &home {
+        if let Ok(rel) = path.strip_prefix(h) {
+            (true, rel)
+        } else {
+            (false, path)
+        }
+    } else {
+        (false, path)
+    };
+
+    let mut parts: Vec<&str> = Vec::new();
+    for comp in rel_path.components() {
+        if let std::path::Component::Normal(s) = comp {
+            if let Some(s_str) = s.to_str() {
+                parts.push(s_str);
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return if is_home { "~".to_string() } else { original_path.to_string() };
+    }
+
+    // Directory parts (excluding filename at the end)
+    let dir_parts = if parts.len() > 1 {
+        &parts[..parts.len() - 1]
+    } else {
+        &parts[..0]
+    };
+
+    if dir_parts.is_empty() {
+        return if is_home { "~".to_string() } else { "/".to_string() };
+    }
+
+    let prefix = if is_home { "~" } else { "" };
+
+    if dir_parts.len() <= max_refs {
+        format!("{}/{}", prefix, dir_parts.join("/"))
+    } else {
+        format!("{}/{}/...", prefix, dir_parts[..max_refs].join("/"))
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let mut config = Config::load();
@@ -125,6 +172,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
+            let term_width = crossterm::terminal::size().ok().map(|(w, _)| w as usize);
+            let max_refs = match term_width {
+                Some(w) if w >= 115 => 2,
+                Some(w) if w >= 105 && !all => 2,
+                _ => if term_width.is_none() { 2 } else { 1 },
+            };
+
             let mut table = Table::new();
             table
                 .load_preset(UTF8_FULL)
@@ -153,6 +207,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format_bytes(entry.file_size)
                 };
 
+                let display_path = format_display_path(&entry.original_path, max_refs);
+
                 let mut row_cells = vec![
                     Cell::new(entry.id.to_string()).fg(Color::Cyan),
                     Cell::new(entry.filename).fg(Color::Green),
@@ -170,7 +226,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     row_cells.push(status_cell);
                 }
-                row_cells.push(Cell::new(entry.original_path));
+                row_cells.push(Cell::new(display_path));
                 table.add_row(Row::from(row_cells));
             }
 
