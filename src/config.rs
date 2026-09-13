@@ -50,6 +50,7 @@ fn default_filename_regex() -> Vec<String> {
         r".*~$".into(),
         r".*\.tmp$".into(),
         r"^core(\.\d+)?$".into(),
+        r"^\.~lock\..*#$".into(),
     ]
 }
 
@@ -76,6 +77,16 @@ pub struct Config {
     compiled_filename_regex: Vec<Regex>,
 }
 
+fn compile_regex_with_glob_fallback(pattern: &str) -> Option<Regex> {
+    if let Ok(re) = Regex::new(pattern) {
+        Some(re)
+    } else {
+        // Fallback: try converting shell glob syntax (e.g. *.log, *.pptx) to regex
+        let converted = Config::glob_to_regex(pattern);
+        Regex::new(&converted).ok()
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         let storage = StorageConfig {
@@ -90,12 +101,12 @@ impl Default for Config {
         let compiled_path_regex = exclusions
             .path_regex
             .iter()
-            .filter_map(|r| Regex::new(r).ok())
+            .filter_map(|r| compile_regex_with_glob_fallback(r))
             .collect();
         let compiled_filename_regex = exclusions
             .filename_regex
             .iter()
-            .filter_map(|r| Regex::new(r).ok())
+            .filter_map(|r| compile_regex_with_glob_fallback(r))
             .collect();
 
         Config {
@@ -139,12 +150,12 @@ impl Config {
             cfg.compiled_path_regex = e
                 .path_regex
                 .iter()
-                .filter_map(|r| Regex::new(r).ok())
+                .filter_map(|r| compile_regex_with_glob_fallback(r))
                 .collect();
             cfg.compiled_filename_regex = e
                 .filename_regex
                 .iter()
-                .filter_map(|r| Regex::new(r).ok())
+                .filter_map(|r| compile_regex_with_glob_fallback(r))
                 .collect();
             cfg.exclusions = e;
         }
@@ -218,18 +229,28 @@ impl Config {
 
     /// Test a path and return a detailed diagnostic of what matched (if any)
     pub fn test_path(&self, path: &Path, filename: &str) -> Option<String> {
+        let abs_path = if path.is_absolute() {
+            None
+        } else {
+            std::env::current_dir().ok().map(|cwd| cwd.join(path))
+        };
         let path_str = path.to_string_lossy();
+        let abs_path_str = abs_path.as_ref().map(|p| p.to_string_lossy());
 
         // 1. Check system prefix paths
         for sys_path in &self.exclusions.system_paths {
-            if path_str.starts_with(sys_path) {
+            if path_str.starts_with(sys_path)
+                || abs_path_str.as_ref().map_or(false, |p| p.starts_with(sys_path))
+            {
                 return Some(format!("system_paths prefix '{}'", sys_path));
             }
         }
 
         // 2. Check path regex
         for (i, re) in self.compiled_path_regex.iter().enumerate() {
-            if re.is_match(&path_str) {
+            if re.is_match(&path_str)
+                || abs_path_str.as_ref().map_or(false, |p| re.is_match(p))
+            {
                 let raw_rule = self.exclusions.path_regex.get(i).map(|s| s.as_str()).unwrap_or("unknown");
                 return Some(format!("path_regex rule '{}'", raw_rule));
             }
@@ -252,13 +273,13 @@ impl Config {
             .exclusions
             .path_regex
             .iter()
-            .filter_map(|r| Regex::new(r).ok())
+            .filter_map(|r| compile_regex_with_glob_fallback(r))
             .collect();
         self.compiled_filename_regex = self
             .exclusions
             .filename_regex
             .iter()
-            .filter_map(|r| Regex::new(r).ok())
+            .filter_map(|r| compile_regex_with_glob_fallback(r))
             .collect();
     }
 
