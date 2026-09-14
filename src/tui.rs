@@ -7,9 +7,9 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
     Terminal,
 };
 use std::io::stdout;
@@ -19,6 +19,7 @@ use crate::config::Config;
 use crate::db::{Db, EntryRecord};
 use crate::format_bytes;
 use crate::restore::restore_entry;
+use crate::theme::{self, THEMES};
 
 #[derive(PartialEq)]
 enum ViewMode {
@@ -41,7 +42,8 @@ pub fn run_tui(db: &Db, config: &Config) -> Result<(), Box<dyn std::error::Error
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = main_loop(&mut terminal, db, config);
+    let mut config_clone = config.clone();
+    let res = main_loop(&mut terminal, db, &mut config_clone);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -76,7 +78,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 fn main_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     db: &Db,
-    config: &Config,
+    config: &mut Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut entries = db.list_active(None)?;
     let mut history_entries = db.list_history(None)?;
@@ -89,6 +91,7 @@ fn main_loop<B: ratatui::backend::Backend>(
         history_table_state.select(Some(0));
     }
 
+    let mut theme_idx = theme::theme_index(config.theme.as_deref().unwrap_or("catppuccin"));
     let mut active_pane = ActivePane::Preserved;
     let mut view_mode = ViewMode::Browsing;
     let mut action_index: usize = 0;
@@ -97,35 +100,70 @@ fn main_loop<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| {
             let size = f.area();
+            let theme = &THEMES[theme_idx];
 
-            // Main vertical layout: Top Header (1 line), Center Split (remaining), Bottom Footer (2 lines)
+            let show_boxed_header = size.height >= 26;
+            let header_height = if show_boxed_header { 3 } else { 1 };
+
+            // Main vertical layout: Top Header, Center Split (remaining), Bottom Footer (1 line)
             let root_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(header_height),
+                    Constraint::Min(6),
                     Constraint::Length(1),
-                    Constraint::Min(5),
-                    Constraint::Length(2),
                 ])
                 .split(size);
 
             // 1. TOP HEADER
             let time_str = Local::now().format("%H:%M:%S").to_string();
-            let header_line = Line::from(vec![
-                Span::styled("• ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                Span::styled("rinode live  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("[{}]  ", time_str), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    format!("{} preserved", entries.len()),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("  |  ", Style::default().fg(Color::LightCyan)),
-                Span::styled(
-                    format!("{} in history", history_entries.len()),
-                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
-                ),
-            ]);
-            let header_widget = Paragraph::new(vec![header_line]);
-            f.render_widget(header_widget, root_chunks[0]);
+            if show_boxed_header {
+                let top_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.inactive_border))
+                    .title(Span::styled(" rinode live ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)))
+                    .title_alignment(Alignment::Left);
+
+                let top_line = Line::from(vec![
+                    Span::styled(" • ", Style::default().fg(theme.accent)),
+                    Span::styled(format!("Time: {}  │  ", time_str), Style::default().fg(theme.value_fg)),
+                    Span::styled(
+                        format!("{} preserved items  │  ", entries.len()),
+                        Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{} in history  │  ", history_entries.len()),
+                        Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("Active: {}  │  ", if active_pane == ActivePane::Preserved { "Preserved Vault" } else { "History" }),
+                        Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(format!("[t] Theme: {} ", theme.name), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                ]);
+                let header_widget = Paragraph::new(vec![top_line]).block(top_block);
+                f.render_widget(header_widget, root_chunks[0]);
+            } else {
+                let header_line = Line::from(vec![
+                    Span::styled("• ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("rinode live  ", Style::default().fg(theme.unselected_row_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("[{}]  ", time_str), Style::default().fg(theme.value_fg)),
+                    Span::styled(
+                        format!("{} preserved", entries.len()),
+                        Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("  |  ", Style::default().fg(theme.inactive_border)),
+                    Span::styled(
+                        format!("{} in history", history_entries.len()),
+                        Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("  |  ", Style::default().fg(theme.inactive_border)),
+                    Span::styled(format!("[t] Theme: {}", theme.name), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                ]);
+                let header_widget = Paragraph::new(vec![header_line]);
+                f.render_widget(header_widget, root_chunks[0]);
+            }
 
             // 2. CENTER SPLIT (LHS: Table, RHS: Details & History)
             let center_chunks = Layout::default()
@@ -141,9 +179,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .iter()
                 .map(|h| {
                     let (color, modifier) = if active_pane == ActivePane::Preserved {
-                        (Color::LightCyan, Modifier::BOLD)
+                        (theme.header_fg, Modifier::BOLD)
                     } else {
-                        (Color::DarkGray, Modifier::empty())
+                        (theme.inactive_title, Modifier::empty())
                     };
                     Span::styled(*h, Style::default().fg(color).add_modifier(modifier))
                 });
@@ -165,54 +203,66 @@ fn main_loop<B: ratatui::backend::Backend>(
                     format_bytes(entry.file_size)
                 };
 
-                let name_display = format!("{}{}", prefix, entry.filename);
                 let date_text = entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
 
-                let style = if is_selected && active_pane == ActivePane::Preserved {
-                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
+                let (prefix_style, name_style) = if is_selected && active_pane == ActivePane::Preserved {
+                    (
+                        Style::default().fg(theme.cursor_active).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD),
+                    )
                 } else if is_selected {
-                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    (
+                        Style::default().fg(theme.cursor_inactive).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.selected_row_inactive_fg).add_modifier(Modifier::BOLD),
+                    )
                 } else {
-                    Style::default().fg(Color::White)
+                    (
+                        Style::default().fg(theme.unselected_row_fg),
+                        Style::default().fg(theme.unselected_row_fg),
+                    )
                 };
 
                 Row::new(vec![
-                    Span::styled(entry.id.to_string(), style),
-                    Span::styled(name_display, style),
-                    Span::styled(size_text, style),
-                    Span::styled(date_text, style),
-                    Span::styled(entry.inode_no.to_string(), style),
+                    Cell::from(Span::styled(entry.id.to_string(), name_style)),
+                    Cell::from(Line::from(vec![
+                        Span::styled(prefix, prefix_style),
+                        Span::styled(&entry.filename, name_style),
+                    ])),
+                    Cell::from(Span::styled(size_text, name_style)),
+                    Cell::from(Span::styled(date_text, name_style)),
+                    Cell::from(Span::styled(entry.inode_no.to_string(), name_style)),
                 ])
             });
 
-            let preserved_border_color = if active_pane == ActivePane::Preserved {
-                Color::LightCyan
+            let preserved_border_style = if active_pane == ActivePane::Preserved {
+                Style::default().fg(theme.active_border).add_modifier(Modifier::BOLD)
             } else {
-                Color::DarkGray
+                Style::default().fg(theme.inactive_border)
             };
 
             let preserved_title = if active_pane == ActivePane::Preserved {
                 Line::from(vec![
-                    Span::styled(" PRESERVED VAULT ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("({}) ", entries.len()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled("[ACTIVE] ", Style::default().fg(Color::Black).bg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" PRESERVED VAULT ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("({}) ", entries.len()), Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled("[ACTIVE] ", Style::default().fg(theme.active_badge_fg).bg(theme.active_badge_bg).add_modifier(Modifier::BOLD)),
                 ])
             } else {
                 Line::from(vec![
-                    Span::styled(format!(" PRESERVED VAULT ({}) ", entries.len()), Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!(" PRESERVED VAULT ({}) ", entries.len()), Style::default().fg(theme.inactive_title)),
                 ])
             };
 
             let preserved_block = Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(preserved_border_color))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(preserved_border_style)
                 .title(preserved_title);
 
             if entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  Vault is currently empty.", Style::default().fg(Color::LightCyan))),
-                    Line::from(Span::styled("  Files deleted via 'rinode rm' will appear here.", Style::default().fg(Color::White))),
+                    Line::from(Span::styled("  Vault is currently empty.", Style::default().fg(theme.accent))),
+                    Line::from(Span::styled("  Files deleted via 'rinode rm' will appear here.", Style::default().fg(theme.value_fg))),
                 ])
                 .block(preserved_block);
                 f.render_widget(empty_para, center_chunks[0]);
@@ -221,10 +271,10 @@ fn main_loop<B: ratatui::backend::Backend>(
                     rows,
                     [
                         Constraint::Length(5),
-                        Constraint::Percentage(40),
+                        Constraint::Fill(1),
                         Constraint::Length(10),
                         Constraint::Length(17),
-                        Constraint::Min(8),
+                        Constraint::Length(10),
                     ],
                 )
                 .header(table_header)
@@ -252,39 +302,36 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ActivePane::History => (history_entries.get(history_selected_idx), true),
             };
 
-            let details_border_color = if active_pane == ActivePane::Preserved {
-                Color::Cyan
-            } else {
-                Color::DarkGray
-            };
+            let details_border_style = Style::default().fg(theme.inactive_border);
 
             let details_title = if is_history_view {
                 if let Some(entry) = current_entry {
                     let (status_text, status_color) = match entry.status.as_str() {
-                        "RESTORED" => ("HISTORY: RESTORED", Color::LightGreen),
-                        "PURGED" => ("HISTORY: PURGED", Color::LightRed),
-                        "EXCLUDED" => ("HISTORY: EXCLUDED", Color::Yellow),
-                        _ => ("HISTORY", Color::LightCyan),
+                        "RESTORED" => ("HISTORY: RESTORED", theme.status_restored),
+                        "PURGED" => ("HISTORY: PURGED", theme.status_purged),
+                        "EXCLUDED" => ("HISTORY: EXCLUDED", theme.status_excluded),
+                        _ => ("HISTORY", theme.secondary),
                     };
                     Line::from(vec![
-                        Span::styled(" ENTRY DETAILS ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(" ENTRY DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                         Span::styled(format!("• {} ", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                     ])
                 } else {
                     Line::from(vec![
-                        Span::styled(" ENTRY DETAILS • HISTORY ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(" ENTRY DETAILS • HISTORY ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                     ])
                 }
             } else {
                 Line::from(vec![
-                    Span::styled(" ENTRY DETAILS ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                    Span::styled("• PRESERVED VAULT ", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                    Span::styled(" ENTRY DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled("• PRESERVED VAULT ", Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)),
                 ])
             };
 
             let details_block = Block::default()
-                .borders(Borders::LEFT | Borders::TOP)
-                .border_style(Style::default().fg(details_border_color))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(details_border_style)
                 .title(details_title);
 
             if let Some(entry) = current_entry {
@@ -298,96 +345,96 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                 let source_badge = if is_history_view {
                     let (status_text, status_color) = match entry.status.as_str() {
-                        "RESTORED" => ("HISTORY / RESTORED", Color::LightGreen),
-                        "PURGED" => ("HISTORY / PURGED", Color::LightRed),
-                        "EXCLUDED" => ("HISTORY / EXCLUDED", Color::Yellow),
-                        _ => ("HISTORY", Color::LightCyan),
+                        "RESTORED" => ("HISTORY / RESTORED", theme.status_restored),
+                        "PURGED" => ("HISTORY / PURGED", theme.status_purged),
+                        "EXCLUDED" => ("HISTORY / EXCLUDED", theme.status_excluded),
+                        _ => ("HISTORY", theme.secondary),
                     };
                     Span::styled(format!("  [SOURCE: {}]", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD))
                 } else {
-                    Span::styled("  [SOURCE: PRESERVED VAULT]", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))
+                    Span::styled("  [SOURCE: PRESERVED VAULT]", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+                };
+
+                let status_color = match entry.status.as_str() {
+                    "RESTORED" => theme.status_restored,
+                    "PURGED" => theme.status_purged,
+                    "EXCLUDED" => theme.status_excluded,
+                    _ => theme.secondary,
                 };
 
                 let mut details_lines = vec![
                     Line::from(vec![
-                        Span::styled("• ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(&entry.filename, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("  [{}]", file_type), Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                        Span::styled("• ", Style::default().fg(theme.accent)),
+                        Span::styled(&entry.filename, Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("  [{}]", file_type), Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)),
                         source_badge,
                     ]),
-                    Line::from(""),
                     Line::from(vec![
-                        Span::styled("Path:        ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(&entry.original_path, Style::default().fg(Color::White)),
+                        Span::styled("Path:        ", Style::default().fg(theme.label_fg)),
+                        Span::styled(&entry.original_path, Style::default().fg(theme.value_fg)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Inode:       ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(entry.inode_no.to_string(), Style::default().fg(Color::White)),
+                        Span::styled("Inode:       ", Style::default().fg(theme.label_fg)),
+                        Span::styled(entry.inode_no.to_string(), Style::default().fg(theme.value_fg)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Device:      ", Style::default().fg(Color::LightCyan)),
+                        Span::styled("Device:      ", Style::default().fg(theme.label_fg)),
                         Span::styled(
                             format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id),
-                            Style::default().fg(Color::White),
+                            Style::default().fg(theme.value_fg),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("Size:        ", Style::default().fg(Color::LightCyan)),
+                        Span::styled("Size:        ", Style::default().fg(theme.label_fg)),
                         Span::styled(
                             format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size),
-                            Style::default().fg(Color::White),
+                            Style::default().fg(theme.value_fg),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("Permissions: ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(format!("{:04o}", entry.mode), Style::default().fg(Color::White)),
+                        Span::styled("Permissions: ", Style::default().fg(theme.label_fg)),
+                        Span::styled(format!("{:04o}", entry.mode), Style::default().fg(theme.value_fg)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Owner:       ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(format!("UID {} / GID {}", entry.uid, entry.gid), Style::default().fg(Color::White)),
+                        Span::styled("Owner:       ", Style::default().fg(theme.label_fg)),
+                        Span::styled(format!("UID {} / GID {}", entry.uid, entry.gid), Style::default().fg(theme.value_fg)),
                     ]),
                     Line::from(vec![
-                        Span::styled("Deleted:     ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::White)),
+                        Span::styled("Deleted:     ", Style::default().fg(theme.label_fg)),
+                        Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(theme.value_fg)),
                     ]),
                 ];
 
                 if let Some(restored_at) = entry.restored_at {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Restored:    ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::LightGreen)),
+                        Span::styled("Restored:    ", Style::default().fg(theme.label_fg)),
+                        Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(theme.status_restored)),
                     ]));
                 }
 
                 if let Some(purged_at) = entry.purged_at {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Purged:      ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(Color::LightRed)),
+                        Span::styled("Purged:      ", Style::default().fg(theme.label_fg)),
+                        Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(), Style::default().fg(theme.status_purged)),
                     ]));
                 }
 
-                let status_color = match entry.status.as_str() {
-                    "RESTORED" => Color::LightGreen,
-                    "PURGED" => Color::LightRed,
-                    "EXCLUDED" => Color::Yellow,
-                    _ => Color::LightCyan,
-                };
                 details_lines.push(Line::from(vec![
-                    Span::styled("Status:      ", Style::default().fg(Color::LightCyan)),
+                    Span::styled("Status:      ", Style::default().fg(theme.label_fg)),
                     Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                 ]));
 
                 if let Some(target) = &entry.symlink_target {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Symlink To:  ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(target, Style::default().fg(Color::LightYellow)),
+                        Span::styled("Symlink To:  ", Style::default().fg(theme.label_fg)),
+                        Span::styled(target, Style::default().fg(theme.warning)),
                     ]));
                 }
 
                 if let Some(fp) = &entry.quick_fingerprint {
                     details_lines.push(Line::from(vec![
-                        Span::styled("Fingerprint: ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(fp, Style::default().fg(Color::White)),
+                        Span::styled("Fingerprint: ", Style::default().fg(theme.label_fg)),
+                        Span::styled(fp, Style::default().fg(theme.value_fg)),
                     ]));
                 }
 
@@ -396,10 +443,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                 } else {
                     &entry.vault_path
                 };
-                details_lines.push(Line::from(""));
                 details_lines.push(Line::from(vec![
-                    Span::styled("Vault:       ", Style::default().fg(Color::LightCyan)),
-                    Span::styled(vault_display, Style::default().fg(Color::White)),
+                    Span::styled("Vault:       ", Style::default().fg(theme.label_fg)),
+                    Span::styled(vault_display, Style::default().fg(theme.value_fg)),
                 ]));
 
                 let details_para = Paragraph::new(details_lines).block(details_block);
@@ -407,49 +453,50 @@ fn main_loop<B: ratatui::backend::Backend>(
             } else {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  No file selected.", Style::default().fg(Color::LightCyan))),
+                    Line::from(Span::styled("  No file selected.", Style::default().fg(theme.accent))),
                 ]).block(details_block);
                 f.render_widget(empty_para, right_chunks[0]);
             }
 
             // Bottom Right Pane: HISTORY
-            let history_border_color = if active_pane == ActivePane::History {
-                Color::LightCyan
+            let history_border_style = if active_pane == ActivePane::History {
+                Style::default().fg(theme.active_border).add_modifier(Modifier::BOLD)
             } else {
-                Color::DarkGray
+                Style::default().fg(theme.inactive_border)
             };
 
             let history_title = if active_pane == ActivePane::History {
                 Line::from(vec![
-                    Span::styled(" HISTORY ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("({}) ", history_entries.len()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled("[ACTIVE] ", Style::default().fg(Color::Black).bg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" HISTORY ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("({}) ", history_entries.len()), Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled("[ACTIVE] ", Style::default().fg(theme.active_badge_fg).bg(theme.active_badge_bg).add_modifier(Modifier::BOLD)),
                 ])
             } else {
                 Line::from(vec![
-                    Span::styled(format!(" HISTORY ({}) ", history_entries.len()), Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!(" HISTORY ({}) ", history_entries.len()), Style::default().fg(theme.inactive_title)),
                 ])
             };
 
             let history_block = Block::default()
-                .borders(Borders::LEFT | Borders::TOP)
-                .border_style(Style::default().fg(history_border_color))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(history_border_style)
                 .title(history_title);
 
             if history_entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  No records in history.", Style::default().fg(Color::LightCyan))),
-                    Line::from(Span::styled("  Restored or purged files will appear here.", Style::default().fg(Color::White))),
+                    Line::from(Span::styled("  No records in history.", Style::default().fg(theme.accent))),
+                    Line::from(Span::styled("  Restored or purged files will appear here.", Style::default().fg(theme.value_fg))),
                 ])
                 .block(history_block);
                 f.render_widget(empty_para, right_chunks[1]);
             } else {
                 let history_header = Row::new(["ID", "NAME", "INODE", "STATUS", "TIME"].iter().map(|h| {
                     let (color, modifier) = if active_pane == ActivePane::History {
-                        (Color::LightCyan, Modifier::BOLD)
+                        (theme.header_fg, Modifier::BOLD)
                     } else {
-                        (Color::DarkGray, Modifier::empty())
+                        (theme.inactive_title, Modifier::empty())
                     };
                     Span::styled(*h, Style::default().fg(color).add_modifier(modifier))
                 })).height(1);
@@ -462,19 +509,28 @@ fn main_loop<B: ratatui::backend::Backend>(
                         "  "
                     };
 
-                    let style = if is_selected && active_pane == ActivePane::History {
-                        Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
+                    let (prefix_style, name_style) = if is_selected && active_pane == ActivePane::History {
+                        (
+                            Style::default().fg(theme.cursor_active).add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD),
+                        )
                     } else if is_selected {
-                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                        (
+                            Style::default().fg(theme.cursor_inactive).add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme.selected_row_inactive_fg).add_modifier(Modifier::BOLD),
+                        )
                     } else {
-                        Style::default().fg(Color::White)
+                        (
+                            Style::default().fg(theme.unselected_row_fg),
+                            Style::default().fg(theme.unselected_row_fg),
+                        )
                     };
 
                     let status_color = match entry.status.as_str() {
-                        "RESTORED" => Color::LightGreen,
-                        "PURGED" => Color::LightRed,
-                        "EXCLUDED" => Color::Yellow,
-                        _ => Color::LightCyan,
+                        "RESTORED" => theme.status_restored,
+                        "PURGED" => theme.status_purged,
+                        "EXCLUDED" => theme.status_excluded,
+                        _ => theme.secondary,
                     };
 
                     let time_dt = if entry.status == "RESTORED" {
@@ -493,14 +549,15 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
                     let time_str = time_dt.with_timezone(&Local).format(time_format).to_string();
 
-                    let name_display = format!("{}{}", prefix, entry.filename);
-
                     Row::new(vec![
-                        Span::styled(entry.id.to_string(), style),
-                        Span::styled(name_display, style),
-                        Span::styled(entry.inode_no.to_string(), style),
-                        Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-                        Span::styled(time_str, style),
+                        Cell::from(Span::styled(entry.id.to_string(), name_style)),
+                        Cell::from(Line::from(vec![
+                            Span::styled(prefix, prefix_style),
+                            Span::styled(&entry.filename, name_style),
+                        ])),
+                        Cell::from(Span::styled(entry.inode_no.to_string(), name_style)),
+                        Cell::from(Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD))),
+                        Cell::from(Span::styled(time_str, name_style)),
                     ])
                 });
 
@@ -524,13 +581,8 @@ fn main_loop<B: ratatui::backend::Backend>(
             }
 
             // 3. BOTTOM FOOTER
-            let footer_border = Line::from(Span::styled(
-                "─".repeat(size.width as usize),
-                Style::default().fg(Color::Cyan),
-            ));
-
             let status_span = if let Some(msg) = &status_message {
-                Span::styled(format!("  {}  ", msg), Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))
+                Span::styled(format!("  {}  ", msg), Style::default().fg(theme.warning).add_modifier(Modifier::BOLD))
             } else {
                 Span::raw("")
             };
@@ -539,44 +591,46 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ViewMode::Browsing => {
                     if active_pane == ActivePane::Preserved {
                         Line::from(vec![
-                            Span::styled("[Tab/l] Switch to History  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [↑/↓/j/k] Navigate Preserved  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [Enter] Menu  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [r] Restore  ", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [x] Purge  ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::LightCyan)),
-                            Span::styled("|  [q] Quit", Style::default().fg(Color::LightYellow)),
+                            Span::styled("[Tab/l] Switch to History  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(theme.value_fg)),
+                            Span::styled("|  [Enter] Menu  ", Style::default().fg(theme.value_fg)),
+                            Span::styled("|  [r] Restore  ", Style::default().fg(theme.status_restored).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [x] Purge  ", Style::default().fg(theme.status_purged).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(theme.header_fg)),
+                            Span::styled("|  [q] Quit", Style::default().fg(theme.warning)),
                             status_span,
                         ])
                     } else {
                         Line::from(vec![
-                            Span::styled("[Tab/h] Switch to Preserved  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [↑/↓/j/k] Navigate History  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [Enter] Inspect  ", Style::default().fg(Color::White)),
-                            Span::styled("|  [e] Rules  ", Style::default().fg(Color::LightCyan)),
-                            Span::styled("|  [q] Quit", Style::default().fg(Color::LightYellow)),
+                            Span::styled("[Tab/h] Switch to Preserved  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(theme.value_fg)),
+                            Span::styled("|  [Enter] Inspect  ", Style::default().fg(theme.value_fg)),
+                            Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [e] Rules  ", Style::default().fg(theme.header_fg)),
+                            Span::styled("|  [q] Quit", Style::default().fg(theme.warning)),
                             status_span,
                         ])
                     }
                 }
                 ViewMode::ActionMenu => Line::from(vec![
-                    Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                    Span::styled("|  [Enter] Execute  ", Style::default().fg(Color::White)),
-                    Span::styled("|  [Esc/q] Close Menu", Style::default().fg(Color::LightYellow)),
+                    Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [Enter] Execute  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [Esc/q] Close Menu", Style::default().fg(theme.warning)),
                     status_span,
                 ]),
                 ViewMode::InspectModal => Line::from(vec![
-                    Span::styled("[Esc/q/Enter] Close Inspection", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled("[Esc/q/Enter] Close Inspection", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 ]),
                 ViewMode::ExclusionModal => Line::from(vec![
-                    Span::styled("[Esc/q/e] Close Rules View", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled("[Esc/q/e] Close Rules View", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 ]),
             };
 
-            let footer_widget = Paragraph::new(vec![footer_border, footer_nav]);
+            let footer_widget = Paragraph::new(vec![footer_nav]);
             f.render_widget(footer_widget, root_chunks[2]);
 
-            // 4. ACTION SUBMENU (Floating Modal matching Image 2)
+            // 4. ACTION SUBMENU (Floating Modal)
             if view_mode == ViewMode::ActionMenu {
                 if let Some(entry) = entries.get(selected_idx) {
                     let popup_area = centered_rect(50, 40, size);
@@ -584,10 +638,11 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     let title = format!(" Actions: {} (ID: {}) ", entry.filename, entry.id);
                     let modal_block = Block::default()
-                        .title(Span::styled(title, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)))
+                        .title(Span::styled(title, Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Cyan));
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(theme.active_border));
 
                     let options = [
                         "1. Restore (Consume & Move back)",
@@ -602,9 +657,9 @@ fn main_loop<B: ratatui::backend::Backend>(
                         let is_active = i == action_index;
                         let prefix = if is_active { "▶ " } else { "  " };
                         let style = if is_active {
-                            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
+                            Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD)
                         } else {
-                            Style::default().fg(Color::White)
+                            Style::default().fg(theme.value_fg)
                         };
                         menu_lines.push(Line::from(vec![
                             Span::styled(prefix, style),
@@ -614,7 +669,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     menu_lines.push(Line::from(""));
                     menu_lines.push(Line::from(Span::styled(
                         "  [1-5] Choose  |  [Esc] Close",
-                        Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
                     )));
 
                     let menu_widget = Paragraph::new(menu_lines).block(modal_block);
@@ -635,78 +690,79 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let modal_block = Block::default()
                         .title(Span::styled(
                             format!(" Metadata Inspection: {} ", entry.filename),
-                            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
                         ))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Cyan));
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(theme.active_border));
 
                     let status_color = match entry.status.as_str() {
-                        "RESTORED" => Color::LightGreen,
-                        "PURGED" => Color::LightRed,
-                        "EXCLUDED" => Color::Yellow,
-                        _ => Color::LightCyan,
+                        "RESTORED" => theme.status_restored,
+                        "PURGED" => theme.status_purged,
+                        "EXCLUDED" => theme.status_excluded,
+                        _ => theme.secondary,
                     };
 
                     let mut inspect_lines = vec![
                         Line::from(""),
                         Line::from(vec![
-                            Span::styled("  Database ID:        ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(entry.id.to_string(), Style::default().fg(Color::White)),
+                            Span::styled("  Database ID:        ", Style::default().fg(theme.label_fg)),
+                            Span::styled(entry.id.to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Filename:           ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(&entry.filename, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                            Span::styled("  Filename:           ", Style::default().fg(theme.label_fg)),
+                            Span::styled(&entry.filename, Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Original Path:      ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(&entry.original_path, Style::default().fg(Color::White)),
+                            Span::styled("  Original Path:      ", Style::default().fg(theme.label_fg)),
+                            Span::styled(&entry.original_path, Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Inode Number:       ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(entry.inode_no.to_string(), Style::default().fg(Color::White)),
+                            Span::styled("  Inode Number:       ", Style::default().fg(theme.label_fg)),
+                            Span::styled(entry.inode_no.to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Device / Mount:     ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id), Style::default().fg(Color::White)),
+                            Span::styled("  Device / Mount:     ", Style::default().fg(theme.label_fg)),
+                            Span::styled(format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Size (bytes):       ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size), Style::default().fg(Color::White)),
+                            Span::styled("  Size (bytes):       ", Style::default().fg(theme.label_fg)),
+                            Span::styled(format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Permissions (Oct):  ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(format!("{:04o}", entry.mode), Style::default().fg(Color::White)),
+                            Span::styled("  Permissions (Oct):  ", Style::default().fg(theme.label_fg)),
+                            Span::styled(format!("{:04o}", entry.mode), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Owner UID / GID:    ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(format!("{} / {}", entry.uid, entry.gid), Style::default().fg(Color::White)),
+                            Span::styled("  Owner UID / GID:    ", Style::default().fg(theme.label_fg)),
+                            Span::styled(format!("{} / {}", entry.uid, entry.gid), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Link/Move Type:     ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(&entry.link_type, Style::default().fg(Color::White)),
+                            Span::styled("  Link/Move Type:     ", Style::default().fg(theme.label_fg)),
+                            Span::styled(&entry.link_type, Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Vault Status:       ", Style::default().fg(Color::LightCyan)),
+                            Span::styled("  Vault Status:       ", Style::default().fg(theme.label_fg)),
                             Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Deletion Time:      ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::White)),
+                            Span::styled("  Deletion Time:      ", Style::default().fg(theme.label_fg)),
+                            Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                     ];
 
                     if let Some(restored_at) = entry.restored_at {
                         inspect_lines.push(Line::from(vec![
-                            Span::styled("  Restoration Time:   ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::LightGreen)),
+                            Span::styled("  Restoration Time:   ", Style::default().fg(theme.label_fg)),
+                            Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.status_restored)),
                         ]));
                     }
 
                     if let Some(purged_at) = entry.purged_at {
                         inspect_lines.push(Line::from(vec![
-                            Span::styled("  Purge Time:         ", Style::default().fg(Color::LightCyan)),
-                            Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(Color::LightRed)),
+                            Span::styled("  Purge Time:         ", Style::default().fg(theme.label_fg)),
+                            Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.status_purged)),
                         ]));
                     }
 
@@ -717,15 +773,15 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
 
                     inspect_lines.push(Line::from(vec![
-                        Span::styled("  Fast Fingerprint:   ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(entry.quick_fingerprint.as_deref().unwrap_or("none"), Style::default().fg(Color::White)),
+                        Span::styled("  Fast Fingerprint:   ", Style::default().fg(theme.label_fg)),
+                        Span::styled(entry.quick_fingerprint.as_deref().unwrap_or("none"), Style::default().fg(theme.value_fg)),
                     ]));
                     inspect_lines.push(Line::from(vec![
-                        Span::styled("  Vault File Path:    ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(vault_display, Style::default().fg(Color::White)),
+                        Span::styled("  Vault File Path:    ", Style::default().fg(theme.label_fg)),
+                        Span::styled(vault_display, Style::default().fg(theme.value_fg)),
                     ]));
                     inspect_lines.push(Line::from(""));
-                    inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
+                    inspect_lines.push(Line::from(Span::styled("  Press [Esc/Enter] to close", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))));
 
                     let inspect_widget = Paragraph::new(inspect_lines).block(modal_block);
                     f.render_widget(inspect_widget, popup_area);
@@ -738,42 +794,43 @@ fn main_loop<B: ratatui::backend::Backend>(
                 f.render_widget(Clear, popup_area);
 
                 let modal_block = Block::default()
-                    .title(Span::styled(" Active Exclusion Rules ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" Active Exclusion Rules ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan));
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.active_border));
 
                 let mut lines = vec![
                     Line::from(""),
-                    Line::from(Span::styled("  System Paths (Prefix match):", Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled("  System Paths (Prefix match):", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD))),
                 ];
                 for p in &config.exclusions.system_paths {
                     lines.push(Line::from(vec![
-                        Span::styled("    • ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(p.clone(), Style::default().fg(Color::White)),
+                        Span::styled("    • ", Style::default().fg(theme.accent)),
+                        Span::styled(p.clone(), Style::default().fg(theme.value_fg)),
                     ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Path Patterns (Regex):", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Path Patterns (Regex):", Style::default().fg(theme.status_restored).add_modifier(Modifier::BOLD))));
                 for r in &config.exclusions.path_regex {
                     lines.push(Line::from(vec![
-                        Span::styled("    • ", Style::default().fg(Color::LightGreen)),
-                        Span::styled(r.clone(), Style::default().fg(Color::White)),
+                        Span::styled("    • ", Style::default().fg(theme.status_restored)),
+                        Span::styled(r.clone(), Style::default().fg(theme.value_fg)),
                     ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Filename Patterns (Regex):", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Filename Patterns (Regex):", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD))));
                 for f in &config.exclusions.filename_regex {
                     lines.push(Line::from(vec![
-                        Span::styled("    • ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(f.clone(), Style::default().fg(Color::White)),
+                        Span::styled("    • ", Style::default().fg(theme.secondary)),
+                        Span::styled(f.clone(), Style::default().fg(theme.value_fg)),
                     ]));
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Press [Esc/q/e] to return to dashboard", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Press [Esc/q/e] to return to dashboard", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))));
 
                 let excl_widget = Paragraph::new(lines).block(modal_block);
                 f.render_widget(excl_widget, popup_area);
@@ -790,6 +847,12 @@ fn main_loop<B: ratatui::backend::Backend>(
                 match view_mode {
                     ViewMode::Browsing => match key.code {
                         KeyCode::Char('q') => break,
+                        KeyCode::Char('t') => {
+                            theme_idx = (theme_idx + 1) % THEMES.len();
+                            let cur = &THEMES[theme_idx];
+                            let _ = config.set_theme(cur.id);
+                            status_message = Some(format!("Switched theme to {}", cur.name));
+                        }
                         KeyCode::Tab | KeyCode::BackTab => {
                             if active_pane == ActivePane::Preserved {
                                 if !history_entries.is_empty() {
@@ -982,7 +1045,7 @@ fn execute_action(
     db: &Db,
 ) {
     let sel = match table_state.selected() {
-        Some(s) => s,
+        Some(i) => i,
         None => return,
     };
     let entry = match entries.get(sel) {
@@ -991,38 +1054,44 @@ fn execute_action(
     };
 
     match action_idx {
-        0 | 1 => {
-            let keep_vault = action_idx == 1;
-            match restore_entry(db, &entry, keep_vault, false) {
+        0 => {
+            // 1. Restore (Consume & Move back)
+            match restore_entry(db, &entry, false, false) {
                 Ok(_) => {
-                    let msg = if keep_vault {
-                        format!("Restored snapshot of '{}' (reflink/copy)", entry.filename)
-                    } else {
-                        format!("Restored '{}' to original path", entry.filename)
-                    };
-                    *status_message = Some(msg);
+                    *status_message = Some(format!("Restored '{}' (consumed from vault)", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
                     *history_entries = db.list_history(None).unwrap_or_default();
                     if history_table_state.selected().is_none() && !history_entries.is_empty() {
                         history_table_state.select(Some(0));
                     }
-                    if !keep_vault && sel >= entries.len() && !entries.is_empty() {
+                    if sel >= entries.len() && !entries.is_empty() {
                         table_state.select(Some(entries.len() - 1));
                     }
-                    *view_mode = ViewMode::Browsing;
                 }
                 Err(e) => {
-                    *status_message = Some(format!("Error: {}", e));
-                    *view_mode = ViewMode::Browsing;
+                    *status_message = Some(format!("Restore error: {}", e));
                 }
             }
+            *view_mode = ViewMode::Browsing;
+        }
+        1 => {
+            // 2. Restore (Keep vault copy / Reflink)
+            match restore_entry(db, &entry, true, false) {
+                Ok(_) => {
+                    *status_message = Some(format!("Restored '{}' (vault copy kept)", entry.filename));
+                }
+                Err(e) => {
+                    *status_message = Some(format!("Restore error: {}", e));
+                }
+            }
+            *view_mode = ViewMode::Browsing;
         }
         2 => {
-            // Inspect raw details
+            // 3. Inspect raw details
             *view_mode = ViewMode::InspectModal;
         }
         3 => {
-            // Purge permanently
+            // 4. Purge permanently
             db.purge_entry(&entry).ok();
             *status_message = Some(format!("Purged '{}'", entry.filename));
             *entries = db.list_active(None).unwrap_or_default();
@@ -1036,7 +1105,7 @@ fn execute_action(
             *view_mode = ViewMode::Browsing;
         }
         4 => {
-            // Copy original path / display
+            // 5. Copy original path
             *status_message = Some(format!("Path: {}", entry.original_path));
             *view_mode = ViewMode::Browsing;
         }

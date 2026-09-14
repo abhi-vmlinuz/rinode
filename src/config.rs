@@ -60,6 +60,8 @@ pub struct ConfigRaw {
     pub storage: Option<StorageConfig>,
     #[serde(default)]
     pub exclusions: Option<ExclusionsConfig>,
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,6 +75,7 @@ pub enum ExclusionKind {
 pub struct Config {
     pub storage: StorageConfig,
     pub exclusions: ExclusionsConfig,
+    pub theme: Option<String>,
     compiled_path_regex: Vec<Regex>,
     compiled_filename_regex: Vec<Regex>,
 }
@@ -112,6 +115,7 @@ impl Default for Config {
         Config {
             storage,
             exclusions,
+            theme: Some("catppuccin".into()),
             compiled_path_regex,
             compiled_filename_regex,
         }
@@ -145,6 +149,9 @@ impl Config {
         let mut cfg = Config::default();
         if let Some(s) = raw.storage {
             cfg.storage = s;
+        }
+        if let Some(t) = raw.theme {
+            cfg.theme = Some(t);
         }
         if let Some(e) = raw.exclusions {
             cfg.compiled_path_regex = e
@@ -374,11 +381,17 @@ impl Config {
         let raw = ConfigRaw {
             storage: Some(self.storage.clone()),
             exclusions: Some(self.exclusions.clone()),
+            theme: self.theme.clone(),
         };
 
         let toml_str = toml::to_string_pretty(&raw).map_err(|e| e.to_string())?;
         fs::write(&config_file, toml_str).map_err(|e| e.to_string())?;
 
         Ok(config_file)
+    }
+
+    pub fn set_theme(&mut self, theme_id: &str) -> Result<PathBuf, String> {
+        self.theme = Some(theme_id.to_string());
+        self.save_to_user_config()
     }
 }

@@ -6,6 +6,7 @@ mod hasher;
 mod init;
 mod restore;
 mod syscalls;
+mod theme;
 mod tui;
 mod vault;
 
