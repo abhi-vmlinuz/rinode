@@ -91,7 +91,7 @@ fn main_loop<B: ratatui::backend::Backend>(
         history_table_state.select(Some(0));
     }
 
-    let mut theme_idx = theme::theme_index(config.theme.as_deref().unwrap_or("catppuccin"));
+    let mut theme_idx = theme::theme_index(config.theme.as_deref().unwrap_or("default"));
     let mut active_pane = ActivePane::Preserved;
     let mut view_mode = ViewMode::Browsing;
     let mut action_index: usize = 0;
@@ -101,6 +101,11 @@ fn main_loop<B: ratatui::backend::Backend>(
         terminal.draw(|f| {
             let size = f.area();
             let theme = &THEMES[theme_idx];
+
+            if let Some(bg_color) = theme.bg {
+                let bg_block = Block::default().style(Style::default().bg(bg_color));
+                f.render_widget(bg_block, size);
+            }
 
             let show_boxed_header = size.height >= 26;
             let header_height = if show_boxed_header { 3 } else { 1 };
@@ -637,12 +642,16 @@ fn main_loop<B: ratatui::backend::Backend>(
                     f.render_widget(Clear, popup_area);
 
                     let title = format!(" Actions: {} (ID: {}) ", entry.filename, entry.id);
-                    let modal_block = Block::default()
+                    let mut modal_block = Block::default()
                         .title(Span::styled(title, Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
                         .border_style(Style::default().fg(theme.active_border));
+
+                    if let Some(bg_color) = theme.bg {
+                        modal_block = modal_block.style(Style::default().bg(bg_color));
+                    }
 
                     let options = [
                         "1. Restore (Consume & Move back)",
@@ -687,7 +696,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let popup_area = centered_rect(65, 60, size);
                     f.render_widget(Clear, popup_area);
 
-                    let modal_block = Block::default()
+                    let mut modal_block = Block::default()
                         .title(Span::styled(
                             format!(" Metadata Inspection: {} ", entry.filename),
                             Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
@@ -696,6 +705,10 @@ fn main_loop<B: ratatui::backend::Backend>(
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
                         .border_style(Style::default().fg(theme.active_border));
+
+                    if let Some(bg_color) = theme.bg {
+                        modal_block = modal_block.style(Style::default().bg(bg_color));
+                    }
 
                     let status_color = match entry.status.as_str() {
                         "RESTORED" => theme.status_restored,
@@ -793,12 +806,16 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let popup_area = centered_rect(65, 60, size);
                 f.render_widget(Clear, popup_area);
 
-                let modal_block = Block::default()
+                let mut modal_block = Block::default()
                     .title(Span::styled(" Active Exclusion Rules ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(theme.active_border));
+
+                if let Some(bg_color) = theme.bg {
+                    modal_block = modal_block.style(Style::default().bg(bg_color));
+                }
 
                 let mut lines = vec![
                     Line::from(""),
@@ -852,6 +869,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                             let cur = &THEMES[theme_idx];
                             let _ = config.set_theme(cur.id);
                             status_message = Some(format!("Switched theme to {}", cur.name));
+                            let _ = terminal.clear();
                         }
                         KeyCode::Tab | KeyCode::BackTab => {
                             if active_pane == ActivePane::Preserved {

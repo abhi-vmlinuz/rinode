@@ -115,7 +115,7 @@ impl Default for Config {
         Config {
             storage,
             exclusions,
-            theme: Some("catppuccin".into()),
+            theme: Some("default".into()),
             compiled_path_regex,
             compiled_filename_regex,
         }

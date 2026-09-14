@@ -4,6 +4,7 @@ use ratatui::style::Color;
 pub struct Theme {
     pub id: &'static str,
     pub name: &'static str,
+    pub bg: Option<Color>, // None = transparent terminal (kitty background), Some = solid theme background
     pub active_border: Color,
     pub inactive_border: Color,
     pub active_title: Color,
@@ -29,8 +30,35 @@ pub struct Theme {
 
 pub const THEMES: &[Theme] = &[
     Theme {
+        id: "default",
+        name: "Default",
+        bg: None, // Fully transparent, preserving user's terminal/kitty transparent background
+        active_border: Color::LightCyan,
+        inactive_border: Color::DarkGray,
+        active_title: Color::LightCyan,
+        inactive_title: Color::DarkGray,
+        active_badge_fg: Color::Black,
+        active_badge_bg: Color::LightCyan,
+        header_fg: Color::LightCyan,
+        selected_row_fg: Color::LightCyan,
+        selected_row_inactive_fg: Color::DarkGray,
+        unselected_row_fg: Color::White,
+        cursor_active: Color::LightCyan,
+        cursor_inactive: Color::DarkGray,
+        label_fg: Color::LightCyan,
+        value_fg: Color::White,
+        status_preserved: Color::LightGreen,
+        status_restored: Color::LightGreen,
+        status_purged: Color::LightRed,
+        status_excluded: Color::Yellow,
+        accent: Color::LightCyan,
+        secondary: Color::Cyan,
+        warning: Color::LightYellow,
+    },
+    Theme {
         id: "catppuccin",
         name: "Catppuccin Mocha",
+        bg: Some(Color::Rgb(30, 30, 46)), // Mocha Base (#1e1e2e)
         active_border: Color::Rgb(203, 166, 247), // Mauve
         inactive_border: Color::Rgb(88, 91, 112), // Surface2
         active_title: Color::Rgb(203, 166, 247),
@@ -54,8 +82,35 @@ pub const THEMES: &[Theme] = &[
         warning: Color::Rgb(250, 179, 135),          // Peach
     },
     Theme {
+        id: "solarized",
+        name: "Solarized Dark",
+        bg: Some(Color::Rgb(0, 43, 54)), // Base03 (#002b36)
+        active_border: Color::Rgb(42, 161, 152),   // Cyan
+        inactive_border: Color::Rgb(88, 110, 117), // Base01
+        active_title: Color::Rgb(42, 161, 152),
+        inactive_title: Color::Rgb(101, 123, 131), // Base00
+        active_badge_fg: Color::Rgb(0, 43, 54),
+        active_badge_bg: Color::Rgb(42, 161, 152),
+        header_fg: Color::Rgb(38, 139, 210),       // Blue
+        selected_row_fg: Color::Rgb(42, 161, 152),
+        selected_row_inactive_fg: Color::Rgb(101, 123, 131),
+        unselected_row_fg: Color::Rgb(147, 161, 161), // Base1
+        cursor_active: Color::Rgb(42, 161, 152),
+        cursor_inactive: Color::Rgb(88, 110, 117),
+        label_fg: Color::Rgb(38, 139, 210),
+        value_fg: Color::Rgb(238, 232, 213),       // Base2
+        status_preserved: Color::Rgb(133, 153, 0), // Green
+        status_restored: Color::Rgb(133, 153, 0),
+        status_purged: Color::Rgb(220, 50, 47),    // Red
+        status_excluded: Color::Rgb(181, 137, 0),  // Yellow
+        accent: Color::Rgb(42, 161, 152),
+        secondary: Color::Rgb(38, 139, 210),
+        warning: Color::Rgb(203, 75, 22),          // Orange
+    },
+    Theme {
         id: "dracula",
         name: "Dracula",
+        bg: Some(Color::Rgb(40, 42, 54)), // Background (#282a36)
         active_border: Color::Rgb(189, 147, 249), // Purple
         inactive_border: Color::Rgb(98, 114, 164), // Comment
         active_title: Color::Rgb(189, 147, 249),
@@ -81,6 +136,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "gruvbox",
         name: "Gruvbox Dark",
+        bg: Some(Color::Rgb(40, 40, 40)), // Dark0 (#282828)
         active_border: Color::Rgb(254, 128, 25),   // Bright Orange
         inactive_border: Color::Rgb(102, 92, 84),  // Dark Gray
         active_title: Color::Rgb(254, 128, 25),
@@ -106,6 +162,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "tokyo_night",
         name: "Tokyo Night",
+        bg: Some(Color::Rgb(26, 27, 38)), // Storm (#1a1b26)
         active_border: Color::Rgb(187, 154, 247), // Magenta
         inactive_border: Color::Rgb(65, 72, 104), // Border
         active_title: Color::Rgb(187, 154, 247),
@@ -131,6 +188,7 @@ pub const THEMES: &[Theme] = &[
     Theme {
         id: "nord",
         name: "Nord",
+        bg: Some(Color::Rgb(46, 52, 64)), // Polar Night (#2e3440)
         active_border: Color::Rgb(136, 192, 208), // Frost Cyan
         inactive_border: Color::Rgb(67, 76, 94),  // Nord2
         active_title: Color::Rgb(136, 192, 208),
@@ -153,31 +211,6 @@ pub const THEMES: &[Theme] = &[
         secondary: Color::Rgb(129, 161, 193),
         warning: Color::Rgb(235, 203, 139),
     },
-    Theme {
-        id: "cyan",
-        name: "Classic Cyan",
-        active_border: Color::LightCyan,
-        inactive_border: Color::DarkGray,
-        active_title: Color::LightCyan,
-        inactive_title: Color::DarkGray,
-        active_badge_fg: Color::Black,
-        active_badge_bg: Color::LightCyan,
-        header_fg: Color::LightCyan,
-        selected_row_fg: Color::LightCyan,
-        selected_row_inactive_fg: Color::DarkGray,
-        unselected_row_fg: Color::White,
-        cursor_active: Color::LightCyan,
-        cursor_inactive: Color::DarkGray,
-        label_fg: Color::LightCyan,
-        value_fg: Color::White,
-        status_preserved: Color::LightGreen,
-        status_restored: Color::LightGreen,
-        status_purged: Color::LightRed,
-        status_excluded: Color::Yellow,
-        accent: Color::LightCyan,
-        secondary: Color::Cyan,
-        warning: Color::LightYellow,
-    },
 ];
 
 #[allow(dead_code)]
@@ -188,7 +221,7 @@ pub fn get_theme(id_or_name: &str) -> &'static Theme {
             return theme;
         }
     }
-    &THEMES[0] // Default to Catppuccin Mocha
+    &THEMES[0] // Default
 }
 
 pub fn theme_index(id_or_name: &str) -> usize {
