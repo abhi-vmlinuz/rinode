@@ -869,7 +869,6 @@ fn main_loop<B: ratatui::backend::Backend>(
                             let cur = &THEMES[theme_idx];
                             let _ = config.set_theme(cur.id);
                             status_message = Some(format!("Switched theme to {}", cur.name));
-                            let _ = terminal.clear();
                         }
                         KeyCode::Tab | KeyCode::BackTab => {
                             if active_pane == ActivePane::Preserved {
