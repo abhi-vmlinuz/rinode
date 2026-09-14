@@ -98,11 +98,11 @@ fn main_loop<B: ratatui::backend::Backend>(
         terminal.draw(|f| {
             let size = f.area();
 
-            // Main vertical layout: Top Header (2 lines), Center Split (remaining), Bottom Footer (2 lines)
+            // Main vertical layout: Top Header (1 line), Center Split (remaining), Bottom Footer (2 lines)
             let root_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(2),
+                    Constraint::Length(1),
                     Constraint::Min(5),
                     Constraint::Length(2),
                 ])
@@ -124,11 +124,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
                 ),
             ]);
-            let header_border = Line::from(Span::styled(
-                "─".repeat(size.width as usize),
-                Style::default().fg(Color::Cyan),
-            ));
-            let header_widget = Paragraph::new(vec![header_line, header_border]);
+            let header_widget = Paragraph::new(vec![header_line]);
             f.render_widget(header_widget, root_chunks[0]);
 
             // 2. CENTER SPLIT (LHS: Table, RHS: Details & History)
@@ -144,12 +140,12 @@ fn main_loop<B: ratatui::backend::Backend>(
             let header_cells = ["ID", "NAME", "SIZE", "DELETED AT", "INODE"]
                 .iter()
                 .map(|h| {
-                    let color = if active_pane == ActivePane::Preserved {
-                        Color::LightCyan
+                    let (color, modifier) = if active_pane == ActivePane::Preserved {
+                        (Color::LightCyan, Modifier::BOLD)
                     } else {
-                        Color::Cyan
+                        (Color::DarkGray, Modifier::empty())
                     };
-                    Span::styled(*h, Style::default().fg(color).add_modifier(Modifier::BOLD))
+                    Span::styled(*h, Style::default().fg(color).add_modifier(modifier))
                 });
             let table_header = Row::new(header_cells).height(1).bottom_margin(1);
 
@@ -175,7 +171,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let style = if is_selected && active_pane == ActivePane::Preserved {
                     Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
                 } else if is_selected {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
@@ -189,20 +185,53 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ])
             });
 
-            let table = Table::new(
-                rows,
-                [
-                    Constraint::Length(5),
-                    Constraint::Percentage(40),
-                    Constraint::Length(10),
-                    Constraint::Length(17),
-                    Constraint::Min(8),
-                ],
-            )
-            .header(table_header)
-            .block(Block::default().borders(Borders::NONE));
+            let preserved_border_color = if active_pane == ActivePane::Preserved {
+                Color::LightCyan
+            } else {
+                Color::DarkGray
+            };
 
-            f.render_widget(table, center_chunks[0]);
+            let preserved_title = if active_pane == ActivePane::Preserved {
+                Line::from(vec![
+                    Span::styled(" PRESERVED VAULT ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("({}) ", entries.len()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled("[ACTIVE] ", Style::default().fg(Color::Black).bg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(format!(" PRESERVED VAULT ({}) ", entries.len()), Style::default().fg(Color::DarkGray)),
+                ])
+            };
+
+            let preserved_block = Block::default()
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(preserved_border_color))
+                .title(preserved_title);
+
+            if entries.is_empty() {
+                let empty_para = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled("  Vault is currently empty.", Style::default().fg(Color::LightCyan))),
+                    Line::from(Span::styled("  Files deleted via 'rinode rm' will appear here.", Style::default().fg(Color::White))),
+                ])
+                .block(preserved_block);
+                f.render_widget(empty_para, center_chunks[0]);
+            } else {
+                let table = Table::new(
+                    rows,
+                    [
+                        Constraint::Length(5),
+                        Constraint::Percentage(40),
+                        Constraint::Length(10),
+                        Constraint::Length(17),
+                        Constraint::Min(8),
+                    ],
+                )
+                .header(table_header)
+                .block(preserved_block);
+
+                f.render_widget(table, center_chunks[0]);
+            }
 
             // RHS Vertical Split: Top Details, Bottom History
             let details_height = if root_chunks[1].height > 25 {
@@ -223,9 +252,40 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ActivePane::History => (history_entries.get(history_selected_idx), true),
             };
 
+            let details_border_color = if active_pane == ActivePane::Preserved {
+                Color::Cyan
+            } else {
+                Color::DarkGray
+            };
+
+            let details_title = if is_history_view {
+                if let Some(entry) = current_entry {
+                    let (status_text, status_color) = match entry.status.as_str() {
+                        "RESTORED" => ("HISTORY: RESTORED", Color::LightGreen),
+                        "PURGED" => ("HISTORY: PURGED", Color::LightRed),
+                        "EXCLUDED" => ("HISTORY: EXCLUDED", Color::Yellow),
+                        _ => ("HISTORY", Color::LightCyan),
+                    };
+                    Line::from(vec![
+                        Span::styled(" ENTRY DETAILS ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("• {} ", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::styled(" ENTRY DETAILS • HISTORY ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    ])
+                }
+            } else {
+                Line::from(vec![
+                    Span::styled(" ENTRY DETAILS ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled("• PRESERVED VAULT ", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                ])
+            };
+
             let details_block = Block::default()
-                .borders(Borders::LEFT)
-                .border_style(Style::default().fg(Color::Cyan));
+                .borders(Borders::LEFT | Borders::TOP)
+                .border_style(Style::default().fg(details_border_color))
+                .title(details_title);
 
             if let Some(entry) = current_entry {
                 let file_type = if entry.is_directory {
@@ -236,36 +296,24 @@ fn main_loop<B: ratatui::backend::Backend>(
                     "FILE"
                 };
 
-                let title_text = if is_history_view {
-                    match entry.status.as_str() {
-                        "RESTORED" => "ENTRY DETAILS (RESTORED)",
-                        "PURGED" => "ENTRY DETAILS (PURGED)",
-                        "EXCLUDED" => "ENTRY DETAILS (EXCLUDED)",
-                        _ => "ENTRY DETAILS (HISTORY)",
-                    }
+                let source_badge = if is_history_view {
+                    let (status_text, status_color) = match entry.status.as_str() {
+                        "RESTORED" => ("HISTORY / RESTORED", Color::LightGreen),
+                        "PURGED" => ("HISTORY / PURGED", Color::LightRed),
+                        "EXCLUDED" => ("HISTORY / EXCLUDED", Color::Yellow),
+                        _ => ("HISTORY", Color::LightCyan),
+                    };
+                    Span::styled(format!("  [SOURCE: {}]", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD))
                 } else {
-                    "ENTRY DETAILS"
-                };
-                let title_color = if is_history_view {
-                    match entry.status.as_str() {
-                        "RESTORED" => Color::LightGreen,
-                        "PURGED" => Color::LightRed,
-                        "EXCLUDED" => Color::Yellow,
-                        _ => Color::LightCyan,
-                    }
-                } else {
-                    Color::LightCyan
+                    Span::styled("  [SOURCE: PRESERVED VAULT]", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))
                 };
 
                 let mut details_lines = vec![
-                    Line::from(Span::styled(
-                        title_text,
-                        Style::default().fg(title_color).add_modifier(Modifier::BOLD),
-                    )),
                     Line::from(vec![
                         Span::styled("• ", Style::default().fg(Color::LightCyan)),
-                        Span::styled(&entry.filename, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(&entry.filename, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
                         Span::styled(format!("  [{}]", file_type), Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                        source_badge,
                     ]),
                     Line::from(""),
                     Line::from(vec![
@@ -368,21 +416,25 @@ fn main_loop<B: ratatui::backend::Backend>(
             let history_border_color = if active_pane == ActivePane::History {
                 Color::LightCyan
             } else {
-                Color::Cyan
+                Color::DarkGray
             };
-            let history_title_color = if active_pane == ActivePane::History {
-                Color::LightCyan
+
+            let history_title = if active_pane == ActivePane::History {
+                Line::from(vec![
+                    Span::styled(" HISTORY ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("({}) ", history_entries.len()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled("[ACTIVE] ", Style::default().fg(Color::Black).bg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                ])
             } else {
-                Color::LightGreen
+                Line::from(vec![
+                    Span::styled(format!(" HISTORY ({}) ", history_entries.len()), Style::default().fg(Color::DarkGray)),
+                ])
             };
 
             let history_block = Block::default()
                 .borders(Borders::LEFT | Borders::TOP)
                 .border_style(Style::default().fg(history_border_color))
-                .title(Span::styled(
-                    format!(" HISTORY ({}) ", history_entries.len()),
-                    Style::default().fg(history_title_color).add_modifier(Modifier::BOLD),
-                ));
+                .title(history_title);
 
             if history_entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
@@ -394,18 +446,26 @@ fn main_loop<B: ratatui::backend::Backend>(
                 f.render_widget(empty_para, right_chunks[1]);
             } else {
                 let history_header = Row::new(["ID", "NAME", "INODE", "STATUS", "TIME"].iter().map(|h| {
-                    Span::styled(
-                        *h,
-                        Style::default()
-                            .fg(if active_pane == ActivePane::History { Color::LightCyan } else { Color::Cyan })
-                            .add_modifier(Modifier::BOLD),
-                    )
+                    let (color, modifier) = if active_pane == ActivePane::History {
+                        (Color::LightCyan, Modifier::BOLD)
+                    } else {
+                        (Color::DarkGray, Modifier::empty())
+                    };
+                    Span::styled(*h, Style::default().fg(color).add_modifier(modifier))
                 })).height(1);
 
                 let history_rows = history_entries.iter().enumerate().map(|(i, entry)| {
-                    let is_sel = i == history_selected_idx && active_pane == ActivePane::History;
-                    let style = if is_sel {
+                    let is_selected = i == history_selected_idx;
+                    let prefix = if is_selected {
+                        if active_pane == ActivePane::History { "▶ " } else { "▷ " }
+                    } else {
+                        "  "
+                    };
+
+                    let style = if is_selected && active_pane == ActivePane::History {
                         Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
+                    } else if is_selected {
+                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     };
@@ -433,9 +493,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
                     let time_str = time_dt.with_timezone(&Local).format(time_format).to_string();
 
+                    let name_display = format!("{}{}", prefix, entry.filename);
+
                     Row::new(vec![
                         Span::styled(entry.id.to_string(), style),
-                        Span::styled(&entry.filename, style),
+                        Span::styled(name_display, style),
                         Span::styled(entry.inode_no.to_string(), style),
                         Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         Span::styled(time_str, style),
@@ -448,7 +510,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let history_table = Table::new(
                     history_rows,
                     [
-                        Constraint::Length(3),
+                        Constraint::Length(4),
                         Constraint::Fill(1),
                         Constraint::Length(8),
                         Constraint::Length(8),
@@ -477,8 +539,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ViewMode::Browsing => {
                     if active_pane == ActivePane::Preserved {
                         Line::from(vec![
-                            Span::styled("[Tab/l] History Pane  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
+                            Span::styled("[Tab/l] Switch to History  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [↑/↓/j/k] Navigate Preserved  ", Style::default().fg(Color::White)),
                             Span::styled("|  [Enter] Menu  ", Style::default().fg(Color::White)),
                             Span::styled("|  [r] Restore  ", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [x] Purge  ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -488,8 +550,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                         ])
                     } else {
                         Line::from(vec![
-                            Span::styled("[Tab/h] Preserved Pane  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(Color::White)),
+                            Span::styled("[Tab/h] Switch to Preserved  ", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [↑/↓/j/k] Navigate History  ", Style::default().fg(Color::White)),
                             Span::styled("|  [Enter] Inspect  ", Style::default().fg(Color::White)),
                             Span::styled("|  [e] Rules  ", Style::default().fg(Color::LightCyan)),
                             Span::styled("|  [q] Quit", Style::default().fg(Color::LightYellow)),
