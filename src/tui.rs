@@ -1,6 +1,6 @@
 use chrono::Local;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -96,8 +96,53 @@ fn main_loop<B: ratatui::backend::Backend>(
     let mut view_mode = ViewMode::Browsing;
     let mut action_index: usize = 0;
     let mut status_message: Option<String> = None;
+    let mut last_data_version = db.get_data_version().unwrap_or(0);
 
     loop {
+        // Auto-refresh: Detect database changes committed by external processes/terminals
+        let current_data_version = db.get_data_version().unwrap_or(last_data_version);
+        if current_data_version != last_data_version {
+            last_data_version = current_data_version;
+
+            let prev_preserved_id = table_state.selected().and_then(|i| entries.get(i).map(|e| e.id));
+            let prev_history_id = history_table_state.selected().and_then(|i| history_entries.get(i).map(|e| e.id));
+
+            if let Ok(new_entries) = db.list_active(None) {
+                entries = new_entries;
+                if entries.is_empty() {
+                    table_state.select(None);
+                    if view_mode == ViewMode::ActionMenu || view_mode == ViewMode::InspectModal {
+                        view_mode = ViewMode::Browsing;
+                    }
+                } else if let Some(target_id) = prev_preserved_id {
+                    if let Some(pos) = entries.iter().position(|e| e.id == target_id) {
+                        table_state.select(Some(pos));
+                    } else {
+                        let curr = table_state.selected().unwrap_or(0);
+                        table_state.select(Some(curr.min(entries.len() - 1)));
+                    }
+                } else {
+                    table_state.select(Some(0));
+                }
+            }
+
+            if let Ok(new_history) = db.list_history(None) {
+                history_entries = new_history;
+                if history_entries.is_empty() {
+                    history_table_state.select(None);
+                } else if let Some(target_id) = prev_history_id {
+                    if let Some(pos) = history_entries.iter().position(|e| e.id == target_id) {
+                        history_table_state.select(Some(pos));
+                    } else {
+                        let curr = history_table_state.selected().unwrap_or(0);
+                        history_table_state.select(Some(curr.min(history_entries.len() - 1)));
+                    }
+                } else if active_pane == ActivePane::History {
+                    history_table_state.select(Some(0));
+                }
+            }
+        }
+
         terminal.draw(|f| {
             let size = f.area();
             let theme = &THEMES[theme_idx];
@@ -950,6 +995,14 @@ fn main_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                         }
+                        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            last_data_version = -1;
+                            status_message = Some("Refreshed".into());
+                        }
+                        KeyCode::F(5) => {
+                            last_data_version = -1;
+                            status_message = Some("Refreshed".into());
+                        }
                         KeyCode::Char('r') => {
                             // Quick restore (applies to Preserved pane)
                             if active_pane == ActivePane::Preserved {
@@ -960,6 +1013,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                                                 status_message = Some(format!("Restored '{}' to original path", entry.filename));
                                                 entries = db.list_active(None)?;
                                                 history_entries = db.list_history(None)?;
+                                                last_data_version = db.get_data_version().unwrap_or(last_data_version);
                                                 if history_table_state.selected().is_none() && !history_entries.is_empty() {
                                                     history_table_state.select(Some(0));
                                                 }
@@ -984,6 +1038,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         status_message = Some(format!("Purged '{}'", entry.filename));
                                         entries = db.list_active(None)?;
                                         history_entries = db.list_history(None)?;
+                                        last_data_version = db.get_data_version().unwrap_or(last_data_version);
                                         if history_table_state.selected().is_none() && !history_entries.is_empty() {
                                             history_table_state.select(Some(0));
                                         }

@@ -361,6 +361,11 @@ impl Db {
         Ok(entries)
     }
 
+    pub fn get_data_version(&self) -> Result<i64> {
+        self.conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+    }
+
     fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<EntryRecord> {
         let deleted_at_str: String = row.get(13)?;
         let deleted_at = DateTime::parse_from_rfc3339(&deleted_at_str)
@@ -401,5 +406,49 @@ impl Db {
             restored_at,
             purged_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_version_updates() {
+        let test_dir = std::env::temp_dir().join(format!("rinode_test_ver_{}", std::process::id()));
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let db_path = test_dir.join("test.db");
+
+        let db1 = Db::open(&db_path).unwrap();
+        let db2 = Db::open(&db_path).unwrap();
+
+        let v1 = db1.get_data_version().unwrap();
+
+        let record = NewEntry {
+            dev_major: 1,
+            dev_minor: 2,
+            mnt_id: 3,
+            inode_no: 12345,
+            original_path: "/test/file.txt".into(),
+            filename: "file.txt".into(),
+            file_size: 100,
+            mode: 0o644,
+            uid: 1000,
+            gid: 1000,
+            quick_fingerprint: None,
+            vault_path: "/vault/file.txt".into(),
+            deleted_at: Utc::now(),
+            status: "PRESERVED".into(),
+            is_directory: false,
+            symlink_target: None,
+            link_type: "RENAME".into(),
+        };
+
+        db2.insert_entry(&record).unwrap();
+
+        let v2 = db1.get_data_version().unwrap();
+        assert_ne!(v1, v2, "data_version in db1 should change after db2 inserts");
+
+        std::fs::remove_dir_all(&test_dir).ok();
     }
 }
