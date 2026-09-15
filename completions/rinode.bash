@@ -55,7 +55,13 @@ _rinode() {
             fi
             ;;
         purge)
-            COMPREPLY=( $(compgen -W "--days -d --all --help -h" -- "$cur") )
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--days -d --all --force -f --help -h" -- "$cur") )
+            else
+                local active_entries
+                active_entries=$(rinode ls --ids 2>/dev/null | tr '\t' ' ')
+                COMPREPLY=( $(compgen -W "${active_entries}" -- "$cur") )
+            fi
             ;;
         tui)
             COMPREPLY=( $(compgen -W "--help -h" -- "$cur") )

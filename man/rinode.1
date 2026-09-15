@@ -18,7 +18,7 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 \fIID\fR
 .br
 .B rinode purge
-[\fB\-d\fR \fIDAYS\fR] [\fB\-\-all\fR]
+[\fB\-d\fR \fIDAYS\fR] [\fB\-\-all\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fITARGET...\fR]
 .br
 .B rinode init
 [\fB\-\-alias\fR \fINAME\fR] [\fB\-\-alias\-rm\fR] \fISHELL\fR
@@ -112,11 +112,17 @@ The file remains preserved in the vault.
 Overwrite existing files or directories if the destination path already exists.
 .SS "Options for purge"
 .TP
+.I TARGET...
+One or more entry IDs or filenames to selectively purge from the vault. Mutually exclusive with \fB\-\-days\fR and \fB\-\-all\fR.
+.TP
 .BR \-d ", " \-\-days " \fIDAYS\fR"
 Purge entries deleted more than \fIDAYS\fR ago (default: configured retention days, typically 14).
 .TP
 .B \-\-all
 Force permanent deletion of all preserved files in the vault.
+.TP
+.BR \-f ", " \-\-force
+Ignore nonexistent target entries without returning an error.
 .SS "Options for init"
 .TP
 .BR \-\-alias " \fINAME\fR"

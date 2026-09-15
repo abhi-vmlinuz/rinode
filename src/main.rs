@@ -319,23 +319,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Commands::Purge { days, all } => {
-            let retention_days = if all {
-                0
-            } else {
-                days.unwrap_or(config.storage.retention_days)
-            };
+        Commands::Purge {
+            targets,
+            days,
+            all,
+            force,
+        } => {
+            if !targets.is_empty() {
+                let mut purged_count = 0;
+                let mut had_error = false;
 
-            let expired = db.get_expired(retention_days)?;
-            let mut purged_count = 0;
+                for target in &targets {
+                    let entry_opt = if let Ok(id) = target.parse::<i64>() {
+                        db.get_by_id(id)?
+                    } else {
+                        let matches = db.find_by_filename(target)?;
+                        matches
+                            .iter()
+                            .find(|e| e.status == "PRESERVED")
+                            .cloned()
+                            .or_else(|| matches.into_iter().next())
+                    };
 
-            for entry in expired {
-                if db.purge_entry(&entry).is_ok() {
-                    purged_count += 1;
+                    match entry_opt {
+                        Some(entry) => {
+                            if entry.status == "PURGED" {
+                                if !force {
+                                    eprintln!("rinode: entry [{}] '{}' is already purged.", entry.id, entry.filename);
+                                }
+                                continue;
+                            }
+                            if entry.status == "EXCLUDED" {
+                                if !force {
+                                    eprintln!("rinode: entry [{}] was excluded and never stored in the vault.", entry.id);
+                                    had_error = true;
+                                }
+                                continue;
+                            }
+                            if entry.status == "RESTORED" {
+                                let vault_path = std::path::Path::new(&entry.vault_path);
+                                if !vault_path.exists() {
+                                    if !force {
+                                        eprintln!("rinode: entry [{}] '{}' was already restored and is not in the vault.", entry.id, entry.filename);
+                                        had_error = true;
+                                    }
+                                    continue;
+                                }
+                            }
+                            match db.purge_entry(&entry) {
+                                Ok(_) => {
+                                    println!("Purged [{}] '{}' from the vault.", entry.id, entry.filename);
+                                    purged_count += 1;
+                                }
+                                Err(e) => {
+                                    eprintln!("rinode: failed to purge [{}] '{}': {}", entry.id, entry.filename, e);
+                                    had_error = true;
+                                }
+                            }
+                        }
+                        None => {
+                            if !force {
+                                eprintln!("rinode: no vault entry found matching '{}'", target);
+                                had_error = true;
+                            }
+                        }
+                    }
                 }
-            }
 
-            println!("Purged {} expired file(s) from the vault.", purged_count);
+                if had_error && !force && purged_count == 0 {
+                    std::process::exit(1);
+                }
+            } else {
+                let retention_days = if all {
+                    0
+                } else {
+                    days.unwrap_or(config.storage.retention_days)
+                };
+
+                let expired = db.get_expired(retention_days)?;
+                let mut purged_count = 0;
+
+                for entry in expired {
+                    if db.purge_entry(&entry).is_ok() {
+                        purged_count += 1;
+                    }
+                }
+
+                println!("Purged {} expired file(s) from the vault.", purged_count);
+            }
         }
 
         Commands::Init { shell, alias, alias_rm } => {

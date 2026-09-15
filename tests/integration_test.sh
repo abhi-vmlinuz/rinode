@@ -139,12 +139,61 @@ fi
 
 echo "[+] Excluded file passed through exclusion filter properly and tracked in history."
 
-# TEST 6: Purge test
-echo -e "\n[TEST 6] Purge test..."
+# TEST 6: Purge test (all)
+echo -e "\n[TEST 6] Purge test (all)..."
 echo "dummy file" > purge_me.txt
 "$BIN" rm purge_me.txt
 "$BIN" purge --all
 echo "[+] Purge completed successfully."
+
+# TEST 6.1: Targeted purge by ID
+echo -e "\n[TEST 6.1] Targeted purge by ID..."
+echo "file to purge by id" > purge_tgt.txt
+echo "file to keep in vault" > purge_kp.txt
+"$BIN" rm purge_tgt.txt purge_kp.txt
+
+TARGET_ID=$("$BIN" ls --ids | grep "purge_tgt.txt" | awk '{print $1}')
+KEEP_ID=$("$BIN" ls --ids | grep "purge_kp.txt" | awk '{print $1}')
+
+"$BIN" purge "$TARGET_ID"
+
+if "$BIN" ls | grep -q "purge_tgt.txt"; then
+    echo "[!] Error: Entry $TARGET_ID still visible in active vault!"
+    exit 1
+fi
+if ! "$BIN" ls -a | grep "purge_tgt.txt" | grep -q "PURGED"; then
+    echo "[!] Error: Entry $TARGET_ID not marked as PURGED in history!"
+    exit 1
+fi
+if ! "$BIN" ls | grep -q "purge_kp.txt"; then
+    echo "[!] Error: Entry $KEEP_ID (purge_kp.txt) was mistakenly purged!"
+    exit 1
+fi
+echo "[+] Specific entry successfully purged by ID without affecting others."
+
+# TEST 6.2: Targeted purge by filename & mutual exclusion check
+echo -e "\n[TEST 6.2] Targeted purge by filename & argument conflicts..."
+"$BIN" purge purge_kp.txt
+if "$BIN" ls | grep -q "purge_kp.txt"; then
+    echo "[!] Error: purge_kp.txt still visible in active vault!"
+    exit 1
+fi
+if ! "$BIN" ls -a | grep "purge_kp.txt" | grep -q "PURGED"; then
+    echo "[!] Error: purge_kp.txt not marked as PURGED in history!"
+    exit 1
+fi
+
+# Ensure targets cannot be combined with --all
+set +e
+output=$("$BIN" purge 1 --all 2>&1)
+exit_code=$?
+set -e
+if [ "$exit_code" -ne 0 ] && echo "$output" | grep -qi "cannot be used with"; then
+    echo "[+] Conflict between TARGETS and --all verified."
+else
+    echo "[!] Error: Expected conflict error when combining targets with --all!"
+    exit 1
+fi
 
 # TEST 7: POSIX rm flags compatibility test
 echo -e "\n[TEST 7] POSIX rm flags compatibility test (-rf, -v, -d)..."

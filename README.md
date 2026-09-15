@@ -207,9 +207,14 @@ rinode exclude --remove "*.log"
 
 #### Cleaning up (Purging)
 
-Permanently unlinks files from the vault that have exceeded the retention threshold:
+Permanently unlinks files from the vault and reclaims disk space:
 
 ```bash
+# Purge specific files by ID or filename
+rinode purge 1
+rinode purge 1 3 5
+rinode purge notes.txt
+
 # Purge entries older than the configured retention period (default: 14 days)
 rinode purge
 

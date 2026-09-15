@@ -54,7 +54,9 @@ _rinode() {
                 purge)
                     _arguments \
                         '(-d --days)'{-d,--days}'[Purge entries older than N days]:days:' \
-                        '--all[Force purge all entries]'
+                        '--all[Force purge all entries]' \
+                        '(-f --force)'{-f,--force}'[Force purge without confirmation]' \
+                        '*:targets:_files'
                     ;;
                 init)
                     _arguments \

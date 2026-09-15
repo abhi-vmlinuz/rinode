@@ -80,9 +80,13 @@ pub enum Commands {
         id: i64,
     },
 
-    /// Purge expired files from the vault to reclaim disk space
+    /// Purge expired files or specific entries from the vault to reclaim disk space
     #[command(name = "purge")]
     Purge {
+        /// Target entry ID(s) or filename(s) to purge from the vault
+        #[arg(value_name = "TARGETS", conflicts_with_all = ["days", "all"])]
+        targets: Vec<String>,
+
         /// Purge entries older than N days (default: configured retention days)
         #[arg(short, long)]
         days: Option<u32>,
@@ -90,6 +94,10 @@ pub enum Commands {
         /// Force purge all preserved entries
         #[arg(long)]
         all: bool,
+
+        /// Force purge without confirmation
+        #[arg(short, long)]
+        force: bool,
     },
 
     /// Launch the interactive terminal user interface (TUI)

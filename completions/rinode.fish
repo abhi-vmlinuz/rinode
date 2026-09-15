@@ -39,10 +39,12 @@ complete -c rinode -n "__fish_seen_subcommand_from restore" -a "(rinode ls --ids
 complete -c rinode -n "__fish_seen_subcommand_from inspect" -s h -l help -d "Print help"
 complete -c rinode -n "__fish_seen_subcommand_from inspect" -a "(rinode ls --ids 2>/dev/null)"
 
-# Flags for purge
+# Flags & dynamic completion for purge
 complete -c rinode -n "__fish_seen_subcommand_from purge" -s d -l days -d "Purge entries older than N days"
 complete -c rinode -n "__fish_seen_subcommand_from purge" -l all -d "Force purge all entries"
+complete -c rinode -n "__fish_seen_subcommand_from purge" -s f -l force -d "Force purge without confirmation"
 complete -c rinode -n "__fish_seen_subcommand_from purge" -s h -l help -d "Print help"
+complete -c rinode -n "__fish_seen_subcommand_from purge" -a "(rinode ls --ids 2>/dev/null)"
 
 # Flags for init
 complete -c rinode -n "__fish_seen_subcommand_from init" -a "fish bash zsh" -d "Supported shell"
