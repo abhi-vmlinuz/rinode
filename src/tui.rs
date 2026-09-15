@@ -194,8 +194,8 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             let rows = entries.iter().enumerate().map(|(i, entry)| {
                 let is_selected = i == selected_idx;
-                let prefix = if is_selected {
-                    if active_pane == ActivePane::Preserved { "▶ " } else { "▷ " }
+                let prefix = if is_selected && active_pane == ActivePane::Preserved {
+                    "▶ "
                 } else {
                     "  "
                 };
@@ -214,11 +214,6 @@ fn main_loop<B: ratatui::backend::Backend>(
                     (
                         Style::default().fg(theme.cursor_active).add_modifier(Modifier::BOLD),
                         Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD),
-                    )
-                } else if is_selected {
-                    (
-                        Style::default().fg(theme.cursor_inactive).add_modifier(Modifier::BOLD),
-                        Style::default().fg(theme.selected_row_inactive_fg).add_modifier(Modifier::BOLD),
                     )
                 } else {
                     (
@@ -508,8 +503,8 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                 let history_rows = history_entries.iter().enumerate().map(|(i, entry)| {
                     let is_selected = i == history_selected_idx;
-                    let prefix = if is_selected {
-                        if active_pane == ActivePane::History { "▶ " } else { "▷ " }
+                    let prefix = if is_selected && active_pane == ActivePane::History {
+                        "▶ "
                     } else {
                         "  "
                     };
@@ -518,11 +513,6 @@ fn main_loop<B: ratatui::backend::Backend>(
                         (
                             Style::default().fg(theme.cursor_active).add_modifier(Modifier::BOLD),
                             Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD),
-                        )
-                    } else if is_selected {
-                        (
-                            Style::default().fg(theme.cursor_inactive).add_modifier(Modifier::BOLD),
-                            Style::default().fg(theme.selected_row_inactive_fg).add_modifier(Modifier::BOLD),
                         )
                     } else {
                         (

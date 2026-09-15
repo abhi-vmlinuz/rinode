@@ -373,9 +373,9 @@ mod tests {
 
     #[test]
     fn test_format_display_name_with_extension() {
-        let long_name = "3 Virtual Memory-Demand Paging- Page Fault - Thrashing new 2026.docx";
+        let long_name = "sample_very_long_document_title_for_testing.docx";
         let formatted = format_display_name(long_name, 26);
-        assert_eq!(formatted, "3 Virtual Memory-De...docx");
+        assert_eq!(formatted, "sample_very_long_do...docx");
         assert_eq!(formatted.chars().count(), 26);
         assert!(formatted.ends_with(".docx"));
     }
@@ -390,9 +390,9 @@ mod tests {
 
     #[test]
     fn test_format_display_name_hidden_file() {
-        let swp = ".todo-notes-topics.txt.swp";
+        let swp = ".sample_notes_file_data.txt.swp";
         let formatted = format_display_name(swp, 20);
-        assert_eq!(formatted, ".todo-notes-to...swp");
+        assert_eq!(formatted, ".sample_notes_...swp");
         assert_eq!(formatted.chars().count(), 20);
     }
 }
