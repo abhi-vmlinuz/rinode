@@ -83,6 +83,24 @@ pub fn format_display_path(original_path: &str, max_refs: usize) -> String {
     }
 }
 
+pub fn format_display_name(filename: &str, max_len: usize) -> String {
+    if filename.chars().count() <= max_len {
+        return filename.to_string();
+    }
+
+    let path = std::path::Path::new(filename);
+    if let (Some(stem), Some(ext)) = (path.file_stem().and_then(|s| s.to_str()), path.extension().and_then(|e| e.to_str())) {
+        if !ext.is_empty() && ext.len() <= 6 && max_len > ext.len() + 4 {
+            let stem_budget = max_len.saturating_sub(ext.len() + 3);
+            let stem_prefix: String = stem.chars().take(stem_budget).collect();
+            return format!("{}...{}", stem_prefix, ext);
+        }
+    }
+
+    let prefix: String = filename.chars().take(max_len.saturating_sub(3)).collect();
+    format!("{}...", prefix)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let mut config = Config::load();
@@ -174,10 +192,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let term_width = crossterm::terminal::size().ok().map(|(w, _)| w as usize);
-            let max_refs = match term_width {
-                Some(w) if w >= 115 => 2,
-                Some(w) if w >= 105 && !all => 2,
-                _ => if term_width.is_none() { 2 } else { 1 },
+            let (max_refs, max_name_len) = match term_width {
+                Some(w) if w >= 135 => (2, 36),
+                Some(w) if w >= 115 => (2, 28),
+                Some(w) if w >= 100 => (1, if all { 20 } else { 24 }),
+                Some(w) if w >= 80 => (1, if all { 15 } else { 18 }),
+                Some(w) => (1, 14.max(w.saturating_sub(if all { 80 } else { 68 }))),
+                None => (2, 26),
             };
 
             let mut table = Table::new();
@@ -208,11 +229,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format_bytes(entry.file_size)
                 };
 
+                let display_name = format_display_name(&entry.filename, max_name_len);
                 let display_path = format_display_path(&entry.original_path, max_refs);
 
                 let mut row_cells = vec![
                     Cell::new(entry.id.to_string()).fg(Color::Cyan),
-                    Cell::new(entry.filename).fg(Color::Green),
+                    Cell::new(display_name).fg(Color::Green),
                     Cell::new(display_size).fg(Color::Yellow),
                     Cell::new(formatted_date),
                     Cell::new(entry.inode_no.to_string()),
@@ -337,4 +359,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_display_name_short() {
+        assert_eq!(format_display_name("file.txt", 20), "file.txt");
+        assert_eq!(format_display_name("exact_length.txt", 16), "exact_length.txt");
+    }
+
+    #[test]
+    fn test_format_display_name_with_extension() {
+        let long_name = "3 Virtual Memory-Demand Paging- Page Fault - Thrashing new 2026.docx";
+        let formatted = format_display_name(long_name, 26);
+        assert_eq!(formatted, "3 Virtual Memory-De...docx");
+        assert_eq!(formatted.chars().count(), 26);
+        assert!(formatted.ends_with(".docx"));
+    }
+
+    #[test]
+    fn test_format_display_name_no_extension() {
+        let long_dir = "very_long_directory_name_without_extension";
+        let formatted = format_display_name(long_dir, 20);
+        assert_eq!(formatted, "very_long_directo...");
+        assert_eq!(formatted.chars().count(), 20);
+    }
+
+    #[test]
+    fn test_format_display_name_hidden_file() {
+        let swp = ".todo-notes-topics.txt.swp";
+        let formatted = format_display_name(swp, 20);
+        assert_eq!(formatted, ".todo-notes-to...swp");
+        assert_eq!(formatted.chars().count(), 20);
+    }
 }
