@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState},
     Terminal,
 };
 use std::io::stdout;
@@ -325,7 +325,32 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .header(table_header)
                 .block(preserved_block);
 
-                f.render_widget(table, center_chunks[0]);
+                f.render_stateful_widget(table, center_chunks[0], &mut table_state);
+
+                if entries.len() > 1 && center_chunks[0].height > 2 {
+                    let scroll_area = Rect {
+                        x: center_chunks[0].right().saturating_sub(1),
+                        y: center_chunks[0].y + 1,
+                        width: 1,
+                        height: center_chunks[0].height.saturating_sub(2),
+                    };
+                    let mut scrollbar_state = ScrollbarState::new(entries.len().saturating_sub(1)).position(selected_idx);
+                    let scrollbar_style = if active_pane == ActivePane::Preserved {
+                        Style::default().fg(theme.accent)
+                    } else {
+                        Style::default().fg(theme.inactive_border)
+                    };
+                    f.render_stateful_widget(
+                        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(None)
+                            .end_symbol(None)
+                            .track_symbol(None)
+                            .thumb_symbol("▐")
+                            .style(scrollbar_style),
+                        scroll_area,
+                        &mut scrollbar_state,
+                    );
+                }
             }
 
             // RHS Vertical Split: Top Details, Bottom History
@@ -617,7 +642,32 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .header(history_header)
                 .block(history_block);
 
-                f.render_widget(history_table, right_chunks[1]);
+                f.render_stateful_widget(history_table, right_chunks[1], &mut history_table_state);
+
+                if history_entries.len() > 1 && right_chunks[1].height > 2 {
+                    let scroll_area = Rect {
+                        x: right_chunks[1].right().saturating_sub(1),
+                        y: right_chunks[1].y + 1,
+                        width: 1,
+                        height: right_chunks[1].height.saturating_sub(2),
+                    };
+                    let mut scrollbar_state = ScrollbarState::new(history_entries.len().saturating_sub(1)).position(history_selected_idx);
+                    let scrollbar_style = if active_pane == ActivePane::History {
+                        Style::default().fg(theme.accent)
+                    } else {
+                        Style::default().fg(theme.inactive_border)
+                    };
+                    f.render_stateful_widget(
+                        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(None)
+                            .end_symbol(None)
+                            .track_symbol(None)
+                            .thumb_symbol("▐")
+                            .style(scrollbar_style),
+                        scroll_area,
+                        &mut scrollbar_state,
+                    );
+                }
             }
 
             // 3. BOTTOM FOOTER
@@ -975,6 +1025,78 @@ fn main_loop<B: ratatui::backend::Backend>(
                                         let curr = history_table_state.selected().unwrap_or(0);
                                         let prev = curr.saturating_sub(1);
                                         history_table_state.select(Some(prev));
+                                        status_message = None;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        let curr = table_state.selected().unwrap_or(0);
+                                        let next = (curr + 5).min(entries.len() - 1);
+                                        table_state.select(Some(next));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        let curr = history_table_state.selected().unwrap_or(0);
+                                        let next = (curr + 5).min(history_entries.len() - 1);
+                                        history_table_state.select(Some(next));
+                                        status_message = None;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::PageUp => {
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        let curr = table_state.selected().unwrap_or(0);
+                                        let prev = curr.saturating_sub(5);
+                                        table_state.select(Some(prev));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        let curr = history_table_state.selected().unwrap_or(0);
+                                        let prev = curr.saturating_sub(5);
+                                        history_table_state.select(Some(prev));
+                                        status_message = None;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Home | KeyCode::Char('g') => {
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        table_state.select(Some(0));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        history_table_state.select(Some(0));
+                                        status_message = None;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::End | KeyCode::Char('G') => {
+                            match active_pane {
+                                ActivePane::Preserved => {
+                                    if !entries.is_empty() {
+                                        table_state.select(Some(entries.len() - 1));
+                                        status_message = None;
+                                    }
+                                }
+                                ActivePane::History => {
+                                    if !history_entries.is_empty() {
+                                        history_table_state.select(Some(history_entries.len() - 1));
                                         status_message = None;
                                     }
                                 }
