@@ -8,7 +8,7 @@ ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
 CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/home/$$SUDO_USER/.cargo/bin/cargo" ]; then echo "/home/$$SUDO_USER/.cargo/bin/cargo"; elif [ -x "$$HOME/.cargo/bin/cargo" ]; then echo "$$HOME/.cargo/bin/cargo"; else echo cargo; fi)
 
-.PHONY: all build release install install-user uninstall uninstall-user test clean whitepaper
+.PHONY: all build release install install-user uninstall uninstall-user purge test clean whitepaper
 
 all: build
 
@@ -92,14 +92,39 @@ uninstall:
 	rm -f $(DESTDIR)/etc/bash_completion.d/rinode
 	rm -f $(DESTDIR)$(FISHCOMPDIR)/rinode.fish
 	rm -f $(DESTDIR)$(ZSHCOMPDIR)/_rinode
-	@echo "rinode uninstalled."
+	rm -rf $(DESTDIR)$(SYSCONFDIR)
+	@if [ -n "$$SUDO_USER" ]; then \
+		USER_HOME=$$(getent passwd "$$SUDO_USER" | cut -d: -f6); \
+		if [ -n "$$USER_HOME" ]; then \
+			rm -rf "$$USER_HOME/.config/rinode"; \
+			rm -rf "$$USER_HOME/.local/share/rinode"; \
+			rm -rf "$$USER_HOME/.local/share/recent-inode"; \
+			rm -f "$$USER_HOME/.local/bin/rinode"; \
+			rm -f "$$USER_HOME/.local/share/man/man1/rinode.1"; \
+			rm -f "$$USER_HOME/.config/fish/completions/rinode.fish"; \
+			rm -f "$$USER_HOME/.local/share/bash-completion/completions/rinode"; \
+		fi; \
+	fi
+	rm -rf $(HOME)/.config/rinode
+	rm -rf $(HOME)/.local/share/rinode
+	rm -rf $(HOME)/.local/share/recent-inode
+	@if [ -n "$$XDG_CONFIG_HOME" ]; then rm -rf "$$XDG_CONFIG_HOME/rinode"; fi
+	@if [ -n "$$XDG_DATA_HOME" ]; then rm -rf "$$XDG_DATA_HOME/rinode" "$$XDG_DATA_HOME/recent-inode"; fi
+	@echo "rinode, configurations, databases, and storage uninstalled."
 
 uninstall-user:
 	rm -f $(HOME)/.local/bin/rinode
 	rm -f $(HOME)/.local/share/man/man1/rinode.1
 	rm -f $(HOME)/.config/fish/completions/rinode.fish
 	rm -f $(HOME)/.local/share/bash-completion/completions/rinode
-	@echo "rinode user installation uninstalled."
+	rm -rf $(HOME)/.config/rinode
+	rm -rf $(HOME)/.local/share/rinode
+	rm -rf $(HOME)/.local/share/recent-inode
+	@if [ -n "$$XDG_CONFIG_HOME" ]; then rm -rf "$$XDG_CONFIG_HOME/rinode"; fi
+	@if [ -n "$$XDG_DATA_HOME" ]; then rm -rf "$$XDG_DATA_HOME/rinode" "$$XDG_DATA_HOME/recent-inode"; fi
+	@echo "rinode user installation, configurations, databases, and storage uninstalled."
+
+purge: uninstall
 
 test: build
 	bash tests/integration_test.sh

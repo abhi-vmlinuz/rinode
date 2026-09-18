@@ -66,7 +66,7 @@ Installs to `~/.local/bin` and user completion directories:
 make install-user
 ```
 
-To uninstall:
+To uninstall (removes binaries, completions, configurations, databases, and storage):
 ```bash
 # Systemwide uninstall
 sudo make uninstall
