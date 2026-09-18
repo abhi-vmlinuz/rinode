@@ -187,7 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if entries.is_empty() {
-                println!("No entries found in the vault.");
+                println!("No deleted files found.");
                 return Ok(());
             }
 
@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ];
                 if all {
                     let status_cell = match entry.status.as_str() {
-                        "PRESERVED" => Cell::new("PRESERVED").fg(Color::Green),
+                        "PRESERVED" => Cell::new("DELETED").fg(Color::Green),
                         "RESTORED" => Cell::new("RESTORED").fg(Color::Cyan),
                         "PURGED" => Cell::new("PURGED").fg(Color::Red),
                         "EXCLUDED" => Cell::new("EXCLUDED").fg(Color::Yellow),

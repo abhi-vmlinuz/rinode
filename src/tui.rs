@@ -31,7 +31,7 @@ enum ViewMode {
 
 #[derive(PartialEq, Copy, Clone)]
 enum ActivePane {
-    Preserved,
+    Deleted,
     History,
 }
 
@@ -92,7 +92,7 @@ fn main_loop<B: ratatui::backend::Backend>(
     }
 
     let mut theme_idx = theme::theme_index(config.theme.as_deref().unwrap_or("default"));
-    let mut active_pane = ActivePane::Preserved;
+    let mut active_pane = ActivePane::Deleted;
     let mut view_mode = ViewMode::Browsing;
     let mut action_index: usize = 0;
     let mut status_message: Option<String> = None;
@@ -177,9 +177,9 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                 let top_line = Line::from(vec![
                     Span::styled(" • ", Style::default().fg(theme.accent)),
-                    Span::styled(format!("Time: {}  │  ", time_str), Style::default().fg(theme.value_fg)),
+                    Span::styled(format!("{}  │  ", time_str), Style::default().fg(theme.value_fg)),
                     Span::styled(
-                        format!("{} preserved items  │  ", entries.len()),
+                        format!("{} deleted  │  ", entries.len()),
                         Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
@@ -187,7 +187,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("Active: {}  │  ", if active_pane == ActivePane::Preserved { "Preserved Vault" } else { "History" }),
+                        format!("Active: {}  │  ", if active_pane == ActivePane::Deleted { "Deleted" } else { "History" }),
                         Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(format!("[t] Theme: {} ", theme.name), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
@@ -197,10 +197,10 @@ fn main_loop<B: ratatui::backend::Backend>(
             } else {
                 let header_line = Line::from(vec![
                     Span::styled("• ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                    Span::styled("rinode live  ", Style::default().fg(theme.unselected_row_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled("rinode  ", Style::default().fg(theme.unselected_row_fg).add_modifier(Modifier::BOLD)),
                     Span::styled(format!("[{}]  ", time_str), Style::default().fg(theme.value_fg)),
                     Span::styled(
-                        format!("{} preserved", entries.len()),
+                        format!("{} deleted", entries.len()),
                         Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled("  |  ", Style::default().fg(theme.inactive_border)),
@@ -228,7 +228,7 @@ fn main_loop<B: ratatui::backend::Backend>(
             let header_cells = ["ID", "NAME", "SIZE", "DELETED AT", "INODE"]
                 .iter()
                 .map(|h| {
-                    let (color, modifier) = if active_pane == ActivePane::Preserved {
+                    let (color, modifier) = if active_pane == ActivePane::Deleted {
                         (theme.header_fg, Modifier::BOLD)
                     } else {
                         (theme.inactive_title, Modifier::empty())
@@ -239,7 +239,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             let rows = entries.iter().enumerate().map(|(i, entry)| {
                 let is_selected = i == selected_idx;
-                let prefix = if is_selected && active_pane == ActivePane::Preserved {
+                let prefix = if is_selected && active_pane == ActivePane::Deleted {
                     "▶ "
                 } else {
                     "  "
@@ -255,7 +255,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                 let date_text = entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
 
-                let (prefix_style, name_style) = if is_selected && active_pane == ActivePane::Preserved {
+                let (prefix_style, name_style) = if is_selected && active_pane == ActivePane::Deleted {
                     (
                         Style::default().fg(theme.cursor_active).add_modifier(Modifier::BOLD),
                         Style::default().fg(theme.selected_row_fg).add_modifier(Modifier::BOLD),
@@ -279,21 +279,21 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ])
             });
 
-            let preserved_border_style = if active_pane == ActivePane::Preserved {
+            let preserved_border_style = if active_pane == ActivePane::Deleted {
                 Style::default().fg(theme.active_border).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.inactive_border)
             };
 
-            let preserved_title = if active_pane == ActivePane::Preserved {
+            let preserved_title = if active_pane == ActivePane::Deleted {
                 Line::from(vec![
-                    Span::styled(" PRESERVED VAULT ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)),
+                    Span::styled(" DELETED ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)),
                     Span::styled(format!("({}) ", entries.len()), Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
                     Span::styled("[ACTIVE] ", Style::default().fg(theme.active_badge_fg).bg(theme.active_badge_bg).add_modifier(Modifier::BOLD)),
                 ])
             } else {
                 Line::from(vec![
-                    Span::styled(format!(" PRESERVED VAULT ({}) ", entries.len()), Style::default().fg(theme.inactive_title)),
+                    Span::styled(format!(" DELETED ({}) ", entries.len()), Style::default().fg(theme.inactive_title)),
                 ])
             };
 
@@ -306,8 +306,8 @@ fn main_loop<B: ratatui::backend::Backend>(
             if entries.is_empty() {
                 let empty_para = Paragraph::new(vec![
                     Line::from(""),
-                    Line::from(Span::styled("  Vault is currently empty.", Style::default().fg(theme.accent))),
-                    Line::from(Span::styled("  Files deleted via 'rinode rm' will appear here.", Style::default().fg(theme.value_fg))),
+                    Line::from(Span::styled("  No deleted files.", Style::default().fg(theme.accent))),
+                    Line::from(Span::styled("  Files deleted with 'rinode rm' will appear here.", Style::default().fg(theme.value_fg))),
                 ])
                 .block(preserved_block);
                 f.render_widget(empty_para, center_chunks[0]);
@@ -335,7 +335,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         height: center_chunks[0].height.saturating_sub(2),
                     };
                     let mut scrollbar_state = ScrollbarState::new(entries.len().saturating_sub(1)).position(selected_idx);
-                    let scrollbar_style = if active_pane == ActivePane::Preserved {
+                    let scrollbar_style = if active_pane == ActivePane::Deleted {
                         Style::default().fg(theme.accent)
                     } else {
                         Style::default().fg(theme.inactive_border)
@@ -368,7 +368,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .split(center_chunks[1]);
 
             let (current_entry, is_history_view) = match active_pane {
-                ActivePane::Preserved => (entries.get(selected_idx), false),
+                ActivePane::Deleted => (entries.get(selected_idx), false),
                 ActivePane::History => (history_entries.get(history_selected_idx), true),
             };
 
@@ -377,24 +377,23 @@ fn main_loop<B: ratatui::backend::Backend>(
             let details_title = if is_history_view {
                 if let Some(entry) = current_entry {
                     let (status_text, status_color) = match entry.status.as_str() {
-                        "RESTORED" => ("HISTORY: RESTORED", theme.status_restored),
-                        "PURGED" => ("HISTORY: PURGED", theme.status_purged),
-                        "EXCLUDED" => ("HISTORY: EXCLUDED", theme.status_excluded),
+                        "RESTORED" => ("RESTORED", theme.status_restored),
+                        "PURGED" => ("PURGED", theme.status_purged),
+                        "EXCLUDED" => ("EXCLUDED", theme.status_excluded),
                         _ => ("HISTORY", theme.secondary),
                     };
                     Line::from(vec![
-                        Span::styled(" ENTRY DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
+                        Span::styled(" DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                         Span::styled(format!("• {} ", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                     ])
                 } else {
                     Line::from(vec![
-                        Span::styled(" ENTRY DETAILS • HISTORY ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
+                        Span::styled(" DETAILS • HISTORY ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                     ])
                 }
             } else {
                 Line::from(vec![
-                    Span::styled(" ENTRY DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
-                    Span::styled("• PRESERVED VAULT ", Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)),
+                    Span::styled(" DETAILS ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                 ])
             };
 
@@ -405,26 +404,6 @@ fn main_loop<B: ratatui::backend::Backend>(
                 .title(details_title);
 
             if let Some(entry) = current_entry {
-                let file_type = if entry.is_directory {
-                    "DIR"
-                } else if entry.link_type == "SYMLINK" {
-                    "SYMLINK"
-                } else {
-                    "FILE"
-                };
-
-                let source_badge = if is_history_view {
-                    let (status_text, status_color) = match entry.status.as_str() {
-                        "RESTORED" => ("HISTORY / RESTORED", theme.status_restored),
-                        "PURGED" => ("HISTORY / PURGED", theme.status_purged),
-                        "EXCLUDED" => ("HISTORY / EXCLUDED", theme.status_excluded),
-                        _ => ("HISTORY", theme.secondary),
-                    };
-                    Span::styled(format!("  [SOURCE: {}]", status_text), Style::default().fg(status_color).add_modifier(Modifier::BOLD))
-                } else {
-                    Span::styled("  [SOURCE: PRESERVED VAULT]", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
-                };
-
                 let status_color = match entry.status.as_str() {
                     "RESTORED" => theme.status_restored,
                     "PURGED" => theme.status_purged,
@@ -432,13 +411,18 @@ fn main_loop<B: ratatui::backend::Backend>(
                     _ => theme.secondary,
                 };
 
+                let mut title_spans = vec![
+                    Span::styled("• ", Style::default().fg(theme.accent)),
+                    Span::styled(&entry.filename, Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
+                ];
+                if entry.is_directory {
+                    title_spans.push(Span::styled("  [DIR]", Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)));
+                } else if entry.link_type == "SYMLINK" {
+                    title_spans.push(Span::styled("  [SYMLINK]", Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)));
+                }
+
                 let mut details_lines = vec![
-                    Line::from(vec![
-                        Span::styled("• ", Style::default().fg(theme.accent)),
-                        Span::styled(&entry.filename, Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("  [{}]", file_type), Style::default().fg(theme.status_preserved).add_modifier(Modifier::BOLD)),
-                        source_badge,
-                    ]),
+                    Line::from(title_spans),
                     Line::from(vec![
                         Span::styled("Path:        ", Style::default().fg(theme.label_fg)),
                         Span::styled(&entry.original_path, Style::default().fg(theme.value_fg)),
@@ -489,9 +473,13 @@ fn main_loop<B: ratatui::backend::Backend>(
                     ]));
                 }
 
+                let display_status = match entry.status.as_str() {
+                    "PRESERVED" => "DELETED",
+                    other => other,
+                };
                 details_lines.push(Line::from(vec![
                     Span::styled("Status:      ", Style::default().fg(theme.label_fg)),
-                    Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                    Span::styled(display_status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                 ]));
 
                 if let Some(target) = &entry.symlink_target {
@@ -514,7 +502,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     &entry.vault_path
                 };
                 details_lines.push(Line::from(vec![
-                    Span::styled("Vault:       ", Style::default().fg(theme.label_fg)),
+                    Span::styled("Storage:     ", Style::default().fg(theme.label_fg)),
                     Span::styled(vault_display, Style::default().fg(theme.value_fg)),
                 ]));
 
@@ -679,13 +667,13 @@ fn main_loop<B: ratatui::backend::Backend>(
 
             let footer_nav = match view_mode {
                 ViewMode::Browsing => {
-                    if active_pane == ActivePane::Preserved {
+                    if active_pane == ActivePane::Deleted {
                         Line::from(vec![
-                            Span::styled("[Tab/l] Switch to History  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                            Span::styled("[Tab/l] History  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [Enter] Menu  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [r] Restore  ", Style::default().fg(theme.status_restored).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [x] Purge  ", Style::default().fg(theme.status_purged).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [x] Delete  ", Style::default().fg(theme.status_purged).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [e] Rules  ", Style::default().fg(theme.header_fg)),
                             Span::styled("|  [q] Quit", Style::default().fg(theme.warning)),
@@ -693,7 +681,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         ])
                     } else {
                         Line::from(vec![
-                            Span::styled("[Tab/h] Switch to Preserved  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                            Span::styled("[Tab/h] Deleted  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [Enter] Inspect  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
@@ -704,16 +692,16 @@ fn main_loop<B: ratatui::backend::Backend>(
                     }
                 }
                 ViewMode::ActionMenu => Line::from(vec![
-                    Span::styled("[↑/↓/1-5] Choose Option  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                    Span::styled("|  [Enter] Execute  ", Style::default().fg(theme.value_fg)),
-                    Span::styled("|  [Esc/q] Close Menu", Style::default().fg(theme.warning)),
+                    Span::styled("[↑/↓/1-5] Choose  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [Enter] Confirm  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [Esc/q] Close", Style::default().fg(theme.warning)),
                     status_span,
                 ]),
                 ViewMode::InspectModal => Line::from(vec![
-                    Span::styled("[Esc/q/Enter] Close Inspection", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("[Esc/q/Enter] Close", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 ]),
                 ViewMode::ExclusionModal => Line::from(vec![
-                    Span::styled("[Esc/q/e] Close Rules View", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("[Esc/q/e] Close", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 ]),
             };
 
@@ -739,11 +727,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                     }
 
                     let options = [
-                        "1. Restore (Consume & Move back)",
-                        "2. Restore (Keep vault copy / Reflink)",
-                        "3. Inspect raw details",
-                        "4. Purge permanently",
-                        "5. Copy original path",
+                        "1. Restore",
+                        "2. Restore (keep copy)",
+                        "3. Metadata",
+                        "4. Delete permanently",
+                        "5. Copy path",
                     ];
 
                     let mut menu_lines = vec![Line::from("")];
@@ -774,7 +762,7 @@ fn main_loop<B: ratatui::backend::Backend>(
             // 5. INSPECT MODAL
             if view_mode == ViewMode::InspectModal {
                 let current_inspected = match active_pane {
-                    ActivePane::Preserved => entries.get(selected_idx),
+                    ActivePane::Deleted => entries.get(selected_idx),
                     ActivePane::History => history_entries.get(history_selected_idx),
                 };
                 if let Some(entry) = current_inspected {
@@ -783,7 +771,7 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     let mut modal_block = Block::default()
                         .title(Span::styled(
-                            format!(" Metadata Inspection: {} ", entry.filename),
+                            format!(" Metadata: {} ", entry.filename),
                             Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
                         ))
                         .title_alignment(Alignment::Center)
@@ -802,64 +790,69 @@ fn main_loop<B: ratatui::backend::Backend>(
                         _ => theme.secondary,
                     };
 
+                    let display_status = match entry.status.as_str() {
+                        "PRESERVED" => "DELETED",
+                        other => other,
+                    };
+
                     let mut inspect_lines = vec![
                         Line::from(""),
                         Line::from(vec![
-                            Span::styled("  Database ID:        ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  ID:                 ", Style::default().fg(theme.label_fg)),
                             Span::styled(entry.id.to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Filename:           ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Name:               ", Style::default().fg(theme.label_fg)),
                             Span::styled(&entry.filename, Style::default().fg(theme.value_fg).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Original Path:      ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Path:               ", Style::default().fg(theme.label_fg)),
                             Span::styled(&entry.original_path, Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Inode Number:       ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Inode:              ", Style::default().fg(theme.label_fg)),
                             Span::styled(entry.inode_no.to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Device / Mount:     ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Device:             ", Style::default().fg(theme.label_fg)),
                             Span::styled(format!("{}:{} (mnt_id: {})", entry.dev_major, entry.dev_minor, entry.mnt_id), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Size (bytes):       ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Size:               ", Style::default().fg(theme.label_fg)),
                             Span::styled(format!("{} ({} bytes)", format_bytes(entry.file_size), entry.file_size), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Permissions (Oct):  ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Permissions:        ", Style::default().fg(theme.label_fg)),
                             Span::styled(format!("{:04o}", entry.mode), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Owner UID / GID:    ", Style::default().fg(theme.label_fg)),
-                            Span::styled(format!("{} / {}", entry.uid, entry.gid), Style::default().fg(theme.value_fg)),
+                            Span::styled("  Owner:              ", Style::default().fg(theme.label_fg)),
+                            Span::styled(format!("UID {} / GID {}", entry.uid, entry.gid), Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Link/Move Type:     ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Type:               ", Style::default().fg(theme.label_fg)),
                             Span::styled(&entry.link_type, Style::default().fg(theme.value_fg)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Vault Status:       ", Style::default().fg(theme.label_fg)),
-                            Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                            Span::styled("  Status:             ", Style::default().fg(theme.label_fg)),
+                            Span::styled(display_status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("  Deletion Time:      ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Deleted:            ", Style::default().fg(theme.label_fg)),
                             Span::styled(entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.value_fg)),
                         ]),
                     ];
 
                     if let Some(restored_at) = entry.restored_at {
                         inspect_lines.push(Line::from(vec![
-                            Span::styled("  Restoration Time:   ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Restored:           ", Style::default().fg(theme.label_fg)),
                             Span::styled(restored_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.status_restored)),
                         ]));
                     }
 
                     if let Some(purged_at) = entry.purged_at {
                         inspect_lines.push(Line::from(vec![
-                            Span::styled("  Purge Time:         ", Style::default().fg(theme.label_fg)),
+                            Span::styled("  Purged:             ", Style::default().fg(theme.label_fg)),
                             Span::styled(purged_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %z").to_string(), Style::default().fg(theme.status_purged)),
                         ]));
                     }
@@ -871,11 +864,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
 
                     inspect_lines.push(Line::from(vec![
-                        Span::styled("  Fast Fingerprint:   ", Style::default().fg(theme.label_fg)),
+                        Span::styled("  Fingerprint:        ", Style::default().fg(theme.label_fg)),
                         Span::styled(entry.quick_fingerprint.as_deref().unwrap_or("none"), Style::default().fg(theme.value_fg)),
                     ]));
                     inspect_lines.push(Line::from(vec![
-                        Span::styled("  Vault File Path:    ", Style::default().fg(theme.label_fg)),
+                        Span::styled("  Storage Path:       ", Style::default().fg(theme.label_fg)),
                         Span::styled(vault_display, Style::default().fg(theme.value_fg)),
                     ]));
                     inspect_lines.push(Line::from(""));
@@ -892,7 +885,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 f.render_widget(Clear, popup_area);
 
                 let mut modal_block = Block::default()
-                    .title(Span::styled(" Active Exclusion Rules ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" Exclusion Rules ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
@@ -932,7 +925,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 }
 
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("  Press [Esc/q/e] to return to dashboard", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("  Press [Esc] to close", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))));
 
                 let excl_widget = Paragraph::new(lines).block(modal_block);
                 f.render_widget(excl_widget, popup_area);
@@ -956,7 +949,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                             status_message = Some(format!("Switched theme to {}", cur.name));
                         }
                         KeyCode::Tab | KeyCode::BackTab => {
-                            if active_pane == ActivePane::Preserved {
+                            if active_pane == ActivePane::Deleted {
                                 if !history_entries.is_empty() {
                                     active_pane = ActivePane::History;
                                     if history_table_state.selected().is_none() {
@@ -967,12 +960,12 @@ fn main_loop<B: ratatui::backend::Backend>(
                                     status_message = Some("No records in history yet".into());
                                 }
                             } else {
-                                active_pane = ActivePane::Preserved;
+                                active_pane = ActivePane::Deleted;
                                 status_message = None;
                             }
                         }
                         KeyCode::Char('l') | KeyCode::Right => {
-                            if active_pane == ActivePane::Preserved {
+                            if active_pane == ActivePane::Deleted {
                                 if !history_entries.is_empty() {
                                     active_pane = ActivePane::History;
                                     if history_table_state.selected().is_none() {
@@ -986,13 +979,13 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('h') | KeyCode::Left => {
                             if active_pane == ActivePane::History {
-                                active_pane = ActivePane::Preserved;
+                                active_pane = ActivePane::Deleted;
                                 status_message = None;
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         let curr = table_state.selected().unwrap_or(0);
                                         let next = (curr + 1).min(entries.len() - 1);
@@ -1012,7 +1005,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         let curr = table_state.selected().unwrap_or(0);
                                         let prev = curr.saturating_sub(1);
@@ -1032,7 +1025,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::PageDown => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         let curr = table_state.selected().unwrap_or(0);
                                         let next = (curr + 5).min(entries.len() - 1);
@@ -1052,7 +1045,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::PageUp => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         let curr = table_state.selected().unwrap_or(0);
                                         let prev = curr.saturating_sub(5);
@@ -1072,7 +1065,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Home | KeyCode::Char('g') => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         table_state.select(Some(0));
                                         status_message = None;
@@ -1088,7 +1081,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::End | KeyCode::Char('G') => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         table_state.select(Some(entries.len() - 1));
                                         status_message = None;
@@ -1104,7 +1097,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Enter => {
                             match active_pane {
-                                ActivePane::Preserved => {
+                                ActivePane::Deleted => {
                                     if !entries.is_empty() {
                                         view_mode = ViewMode::ActionMenu;
                                         action_index = 0;
@@ -1126,13 +1119,13 @@ fn main_loop<B: ratatui::backend::Backend>(
                             status_message = Some("Refreshed".into());
                         }
                         KeyCode::Char('r') => {
-                            // Quick restore (applies to Preserved pane)
-                            if active_pane == ActivePane::Preserved {
+                            // Quick restore (applies to Deleted pane)
+                            if active_pane == ActivePane::Deleted {
                                 if let Some(idx) = table_state.selected() {
                                     if let Some(entry) = entries.get(idx) {
                                         match restore_entry(db, entry, false, false) {
                                             Ok(_) => {
-                                                status_message = Some(format!("Restored '{}' to original path", entry.filename));
+                                                status_message = Some(format!("Restored '{}'", entry.filename));
                                                 entries = db.list_active(None)?;
                                                 history_entries = db.list_history(None)?;
                                                 last_data_version = db.get_data_version().unwrap_or(last_data_version);
@@ -1152,12 +1145,12 @@ fn main_loop<B: ratatui::backend::Backend>(
                             }
                         }
                         KeyCode::Char('x') => {
-                            // Quick purge (applies to Preserved pane)
-                            if active_pane == ActivePane::Preserved {
+                            // Quick delete (applies to Deleted pane)
+                            if active_pane == ActivePane::Deleted {
                                 if let Some(idx) = table_state.selected() {
                                     if let Some(entry) = entries.get(idx) {
                                         db.purge_entry(entry).ok();
-                                        status_message = Some(format!("Purged '{}'", entry.filename));
+                                        status_message = Some(format!("Deleted '{}' permanently", entry.filename));
                                         entries = db.list_active(None)?;
                                         history_entries = db.list_history(None)?;
                                         last_data_version = db.get_data_version().unwrap_or(last_data_version);
@@ -1239,10 +1232,10 @@ fn execute_action(
 
     match action_idx {
         0 => {
-            // 1. Restore (Consume & Move back)
+            // 1. Restore
             match restore_entry(db, &entry, false, false) {
                 Ok(_) => {
-                    *status_message = Some(format!("Restored '{}' (consumed from vault)", entry.filename));
+                    *status_message = Some(format!("Restored '{}'", entry.filename));
                     *entries = db.list_active(None).unwrap_or_default();
                     *history_entries = db.list_history(None).unwrap_or_default();
                     if history_table_state.selected().is_none() && !history_entries.is_empty() {
@@ -1259,10 +1252,10 @@ fn execute_action(
             *view_mode = ViewMode::Browsing;
         }
         1 => {
-            // 2. Restore (Keep vault copy / Reflink)
+            // 2. Restore (keep copy)
             match restore_entry(db, &entry, true, false) {
                 Ok(_) => {
-                    *status_message = Some(format!("Restored '{}' (vault copy kept)", entry.filename));
+                    *status_message = Some(format!("Restored '{}' (copy kept)", entry.filename));
                 }
                 Err(e) => {
                     *status_message = Some(format!("Restore error: {}", e));
@@ -1271,13 +1264,13 @@ fn execute_action(
             *view_mode = ViewMode::Browsing;
         }
         2 => {
-            // 3. Inspect raw details
+            // 3. Metadata
             *view_mode = ViewMode::InspectModal;
         }
         3 => {
-            // 4. Purge permanently
+            // 4. Delete permanently
             db.purge_entry(&entry).ok();
-            *status_message = Some(format!("Purged '{}'", entry.filename));
+            *status_message = Some(format!("Deleted '{}' permanently", entry.filename));
             *entries = db.list_active(None).unwrap_or_default();
             *history_entries = db.list_history(None).unwrap_or_default();
             if history_table_state.selected().is_none() && !history_entries.is_empty() {
@@ -1289,7 +1282,7 @@ fn execute_action(
             *view_mode = ViewMode::Browsing;
         }
         4 => {
-            // 5. Copy original path
+            // 5. Copy path
             *status_message = Some(format!("Path: {}", entry.original_path));
             *view_mode = ViewMode::Browsing;
         }
