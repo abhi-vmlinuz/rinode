@@ -37,7 +37,7 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 pub fn format_display_path(original_path: &str, max_refs: usize) -> String {
-    let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+    let home = crate::config::home_dir();
     let path = std::path::Path::new(original_path);
 
     let (is_home, rel_path) = if let Some(h) = &home {

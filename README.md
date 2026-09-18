@@ -109,6 +109,11 @@ Available themes:
 - `gruvbox`: Gruvbox Dark theme with bright orange and aqua accents.
 - `tokyo_night`: Tokyo Night storm theme with magenta and cyan accents.
 - `nord`: Nord arctic palette with frost cyan and teal accents.
+- `rose_pine`: Rosé Pine palette with rose, foam, and gold highlights.
+- `one_dark`: One Dark editor palette with blue, purple, and green accents.
+- `monokai`: Monokai Pro high-contrast palette with vibrant pink, cyan, and yellow.
+- `kanagawa`: Kanagawa Japanese art palette with wave aqua, crystal blue, and autumn red.
+- `cyberpunk`: Cyberpunk Neon high-contrast palette with neon pink, cyan, and lime.
 
 ### Command-line interface
 

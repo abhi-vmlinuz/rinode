@@ -122,13 +122,35 @@ impl Default for Config {
     }
 }
 
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+pub fn base_data_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        PathBuf::from(xdg)
+    } else if let Some(home) = home_dir() {
+        home.join(".local/share")
+    } else {
+        PathBuf::from(".")
+    }
+}
+
+pub fn config_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        PathBuf::from(xdg).join("rinode")
+    } else if let Some(home) = home_dir() {
+        home.join(".config/rinode")
+    } else {
+        PathBuf::from(".config/rinode")
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
         let candidates = [
             PathBuf::from("rinode.toml"),
-            directories::ProjectDirs::from("com", "rinode", "rinode")
-                .map(|p| p.config_dir().join("config.toml"))
-                .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+            config_dir().join("config.toml"),
             PathBuf::from("/etc/rinode/config.toml"),
         ];
 
@@ -370,12 +392,9 @@ impl Config {
         let config_file = if Path::new("rinode.toml").exists() {
             PathBuf::from("rinode.toml")
         } else {
-            let config_dir = directories::ProjectDirs::from("com", "rinode", "rinode")
-                .map(|p| p.config_dir().to_path_buf())
-                .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config/rinode"));
-
-            fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
-            config_dir.join("config.toml")
+            let dir = config_dir();
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            dir.join("config.toml")
         };
 
         let raw = ConfigRaw {

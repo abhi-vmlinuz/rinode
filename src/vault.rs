@@ -70,9 +70,9 @@ impl VaultManager {
             candidate
         } else {
             // Fallback to user home data dir if mount root is not writable (e.g. non-root on /)
-            let user_storage = directories::BaseDirs::new()
-                .map(|b| b.data_local_dir().join("rinode").join("storage"))
-                .unwrap_or_else(|| PathBuf::from("/tmp/.rinode-storage"));
+            let user_storage = crate::config::base_data_dir()
+                .join("rinode")
+                .join("storage");
             fs::create_dir_all(&user_storage)?;
             user_storage
         };

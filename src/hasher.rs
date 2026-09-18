@@ -1,8 +1,8 @@
+use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
+use std::hash::Hasher;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use twox_hash::XxHash64;
-use std::hash::Hasher;
 
 const CHUNK_SIZE: usize = 64 * 1024; // 64 KB
 
@@ -14,7 +14,7 @@ pub fn compute_quick_fingerprint(path: &Path, file_size: u64) -> Option<String> 
         Err(_) => return None,
     };
 
-    let mut hasher = XxHash64::default();
+    let mut hasher = DefaultHasher::new();
     hasher.write_u64(file_size);
 
     let mut buffer = [0u8; CHUNK_SIZE];

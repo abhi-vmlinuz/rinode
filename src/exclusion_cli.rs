@@ -1,4 +1,3 @@
-use std::io::{self, Write};
 use std::path::Path;
 
 use crate::config::{Config, ExclusionKind};
@@ -30,8 +29,13 @@ pub fn handle_exclude_command(
         return;
     }
 
-    // No arguments -> Interactive prompt menu
-    run_interactive_prompt_menu(config);
+    // No arguments -> display active rules and usage guide
+    display_active_rules(config);
+    println!("\nUsage:");
+    println!("  rinode exclude <pattern>     Add a rule (e.g. *.log, build, /var/log)");
+    println!("  rinode exclude -l            List all active rules");
+    println!("  rinode exclude -t <path>     Test whether a path matches any rule");
+    println!("  rinode exclude -r <rule>     Remove an existing rule");
 }
 
 fn add_single_pattern(config: &mut Config, input: &str) {
@@ -117,73 +121,6 @@ fn display_active_rules(config: &Config) {
     } else {
         for f in &config.exclusions.filename_regex {
             println!("  • {}", f);
-        }
-    }
-    println!("------------------------------------------------------------");
-}
-
-fn run_interactive_prompt_menu(config: &mut Config) {
-    let stdin = io::stdin();
-
-    loop {
-        println!("\nrinode exclusion manager");
-        println!("------------------------------------------------------------");
-        println!("  [1] Quick-add: type any folder, file glob, or path");
-        println!("  [2] Test sample path (dry-run check)");
-        println!("  [3] View all active rules");
-        println!("  [4] Remove an existing rule");
-        println!("  [q] Quit");
-        print!("\nSelect option: ");
-        io::stdout().flush().ok();
-
-        let mut choice = String::new();
-        if stdin.read_line(&mut choice).is_err() {
-            break;
-        }
-
-        match choice.trim() {
-            "1" => {
-                print!("\nEnter folder name, glob (e.g. *.log), or path: ");
-                io::stdout().flush().ok();
-                let mut input = String::new();
-                if stdin.read_line(&mut input).is_ok() {
-                    let trimmed = input.trim();
-                    if !trimmed.is_empty() {
-                        add_single_pattern(config, trimmed);
-                    }
-                }
-            }
-            "2" => {
-                print!("\nEnter sample path to test: ");
-                io::stdout().flush().ok();
-                let mut sample = String::new();
-                if stdin.read_line(&mut sample).is_ok() {
-                    let trimmed = sample.trim();
-                    if !trimmed.is_empty() {
-                        test_sample_path(config, trimmed);
-                    }
-                }
-            }
-            "3" => {
-                display_active_rules(config);
-            }
-            "4" => {
-                print!("\nEnter rule string to remove: ");
-                io::stdout().flush().ok();
-                let mut target = String::new();
-                if stdin.read_line(&mut target).is_ok() {
-                    let trimmed = target.trim();
-                    if !trimmed.is_empty() {
-                        remove_exclusion_rule(config, trimmed);
-                    }
-                }
-            }
-            "q" | "Q" | "exit" => {
-                break;
-            }
-            _ => {
-                println!("[!] Invalid choice. Please select 1, 2, 3, 4, or q.");
-            }
         }
     }
 }

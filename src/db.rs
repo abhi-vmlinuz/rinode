@@ -83,10 +83,7 @@ pub struct Db {
 
 impl Db {
     pub fn open_default() -> Result<Self> {
-        let base_data_dir = directories::BaseDirs::new()
-            .map(|b| b.data_local_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-
+        let base_data_dir = crate::config::base_data_dir();
         Self::migrate_legacy_storage(&base_data_dir);
 
         let db_dir = base_data_dir.join("rinode");
