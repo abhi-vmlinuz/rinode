@@ -49,25 +49,32 @@ impl VaultManager {
         Ok(current)
     }
 
-    /// Get or create the secure vault directory for the given target path
+    /// Get or create the secure storage directory for the given target path
     pub fn get_vault_dir(&self, target_path: &Path) -> Result<PathBuf> {
         let mount_root = self.resolve_mount_root(target_path)?;
-        let candidate_vault = mount_root.join(".rinode-vault");
+        let candidate_storage = mount_root.join(".rinode-storage");
+        let candidate_legacy = mount_root.join(".rinode-vault");
 
-        // Check if we can create/write to this mount's .rinode-vault
-        let vault_dir = if fs::create_dir_all(&candidate_vault).is_ok()
-            && fs::metadata(&candidate_vault)
+        let candidate = if candidate_legacy.exists() && !candidate_storage.exists() {
+            candidate_legacy
+        } else {
+            candidate_storage
+        };
+
+        // Check if we can create/write to this mount's storage directory
+        let vault_dir = if fs::create_dir_all(&candidate).is_ok()
+            && fs::metadata(&candidate)
                 .map(|m| !m.permissions().readonly())
                 .unwrap_or(false)
         {
-            candidate_vault
+            candidate
         } else {
             // Fallback to user home data dir if mount root is not writable (e.g. non-root on /)
-            let user_vault = directories::BaseDirs::new()
-                .map(|b| b.data_local_dir().join("recent-inode").join("vault"))
-                .unwrap_or_else(|| PathBuf::from("/tmp/.rinode-vault"));
-            fs::create_dir_all(&user_vault)?;
-            user_vault
+            let user_storage = directories::BaseDirs::new()
+                .map(|b| b.data_local_dir().join("rinode").join("storage"))
+                .unwrap_or_else(|| PathBuf::from("/tmp/.rinode-storage"));
+            fs::create_dir_all(&user_storage)?;
+            user_storage
         };
 
         // Ensure 0700 permissions (rwx------) for privacy

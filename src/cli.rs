@@ -10,15 +10,15 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Safely delete files or directories by moving them into the vault
+    /// Safely delete files or directories by moving them into storage
     #[command(name = "rm")]
     Rm {
         /// Files or directories to delete
         #[arg(required = true)]
         paths: Vec<PathBuf>,
 
-        /// Permanently delete without vaulting (unlinks directly from filesystem)
-        #[arg(long = "no-vault", visible_alias = "permanent", short = 'p')]
+        /// Permanently delete without storing (unlinks directly from filesystem)
+        #[arg(long = "no-vault", visible_alias = "no-storage", visible_alias = "permanent", short = 'p')]
         permanent: bool,
 
         /// Force deletion without warnings
@@ -64,8 +64,8 @@ pub enum Commands {
         /// ID or filename of the entry to restore
         target: String,
 
-        /// Keep a copy in the vault (Snapshot Fork via CoW/Reflink)
-        #[arg(short, long)]
+        /// Keep a copy in storage (Snapshot fork via CoW / reflink)
+        #[arg(short = 'k', long = "keep-copy", visible_alias = "keep-vault")]
         keep_vault: bool,
 
         /// Overwrite if the destination already exists
@@ -80,10 +80,10 @@ pub enum Commands {
         id: i64,
     },
 
-    /// Purge expired files or specific entries from the vault to reclaim disk space
+    /// Purge expired files or specific entries from storage to reclaim disk space
     #[command(name = "purge")]
     Purge {
-        /// Target entry ID(s) or filename(s) to purge from the vault
+        /// Target entry ID(s) or filename(s) to purge from storage
         #[arg(value_name = "TARGETS", conflicts_with_all = ["days", "all"])]
         targets: Vec<String>,
 
@@ -91,7 +91,7 @@ pub enum Commands {
         #[arg(short, long)]
         days: Option<u32>,
 
-        /// Force purge all preserved entries
+        /// Force purge all deleted entries
         #[arg(long)]
         all: bool,
 

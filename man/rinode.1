@@ -6,13 +6,13 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 [\fICOMMAND\fR] [\fIOPTIONS\fR]
 .br
 .B rinode rm
-[\fB\-p\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
+[\fB\-p\fR|\fB\-\-no\-storage\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
 .br
 .B rinode ls
 [\fB\-n\fR \fILIMIT\fR] [\fB\-a\fR|\fB\-\-all\fR]
 .br
 .B rinode restore
-[\fB\-k\fR|\fB\-\-keep\-vault\fR] [\fB\-f\fR|\fB\-\-force\fR] \fITARGET\fR
+[\fB\-k\fR|\fB\-\-keep\-copy\fR|\fB\-\-keep\-vault\fR] [\fB\-f\fR|\fB\-\-force\fR] \fITARGET\fR
 .br
 .B rinode inspect
 \fIID\fR
@@ -28,10 +28,10 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 .br
 .B rinode tui
 .SH DESCRIPTION
-\fBrinode\fR (recent-inode) is a high-performance deleted file manager and undelete tool for Linux.
+\fBrinode\fR is a high-performance deleted file manager and undelete tool for Linux.
 Unlike conventional trash mechanisms that perform slow byte-by-byte copies across directories,
 \fBrinode\fR leverages Linux VFS primitives (\fBrenameat2\fR, \fBstatx\fR with \fBSTATX_MNT_ID\fR, and \fBFICLONE\fR)
-to safely move deleted files and directories into a mount-local, permissions-locked vault in constant \fBO(1)\fR time.
+to safely move deleted files and directories into a mount-local, permissions-locked storage directory in constant \fBO(1)\fR time.
 .PP
 Data blocks are never copied, and exact file attributes, permissions, timestamps, and inode identifiers are preserved.
 Restoring even multi-gigabyte files or deeply nested directory trees occurs instantaneously.
@@ -45,15 +45,15 @@ Left pane displays a navigable table of preserved files; right pane displays ent
 Use \fBTab\fR, \fBh\fR, or \fBl\fR (or arrow keys) to switch focus between preserved files and restore history.
 Press \fBEnter\fR on a preserved entry to open the action menu (Restore, Reflink Fork, Inspect, Purge, Copy Path) or on a restored entry to inspect metadata.
 Press \fBe\fR to open the active exclusion rules modal.
-Press \fB/\fR to search/filter the vault list.
+Press \fB/\fR to search or filter the list.
 Press \fBq\fR or \fBEsc\fR to exit.
 .TP
 .B rm \fIPATH\fR...
-Safely delete one or more files or directory hierarchies by moving them into the mount's vault and indexing their metadata.
+Safely delete one or more files or directory hierarchies by moving them into storage and indexing their metadata.
 Supports standard POSIX \fBrm\fR flags for transparent shell aliasing.
 .TP
 .B ls
-Display a formatted table of all currently active (preserved) entries in the vault, including entry ID, name, size, deletion timestamp, and original path.
+Display a formatted table of all currently active (preserved) entries in storage, including entry ID, name, size, deletion timestamp, and original path.
 .TP
 .B restore \fITARGET\fR
 Restore a preserved entry to its original filesystem location.
@@ -61,10 +61,10 @@ Restore a preserved entry to its original filesystem location.
 Missing parent directories along the path are automatically recreated (\fBmkdir -p\fR).
 .TP
 .B inspect \fIID\fR
-Display comprehensive audit metadata for an entry: inode number, filesystem device/mount ID, octal permissions, owner UID/GID, fast 64KB content fingerprint, deletion timestamp, and vault storage path.
+Display comprehensive audit metadata for an entry: inode number, filesystem device/mount ID, octal permissions, owner UID/GID, fast 64KB content fingerprint, deletion timestamp, and storage path.
 .TP
 .B purge
-Permanently destroy expired files in the vault to reclaim disk storage.
+Permanently destroy expired files in storage to reclaim disk space.
 .TP
 .B init \fISHELL\fR
 Generate shell integration code for \fBfish\fR, \fBbash\fR, or \fBzsh\fR.
@@ -77,17 +77,17 @@ If a \fIPATTERN\fR is specified (e.g. \fI*.log\fR or \fInode_modules\fR), it is 
 .SH OPTIONS
 .SS "Options for rm"
 .TP
-.BR \-p ", " \-\-no\-vault ", " \-\-permanent
-Permanently unlink the target without moving it into the vault.
+.BR \-p ", " \-\-no\-storage ", " \-\-no\-vault ", " \-\-permanent
+Permanently unlink the target without moving it into storage.
 .TP
 .BR \-f ", " \-\-force
 Ignore nonexistent target paths without printing diagnostic warnings.
 .TP
 .BR \-r ", " \-R ", " \-\-recursive
-Recursively delete directories and their subtrees (POSIX compatibility; rinode vaults entire directory trees in atomic O(1) time).
+Recursively delete directories and their subtrees (POSIX compatibility; rinode preserves entire directory trees in atomic O(1) time).
 .TP
 .BR \-v ", " \-\-verbose
-Print explanation of each vaulted file.
+Print explanation of each deleted file.
 .TP
 .BR \-i ", " \-\-interactive
 Prompt before every removal (POSIX compatibility).
@@ -103,23 +103,23 @@ Limit output to \fIN\fR most recent entries (default: 20).
 Display all historical entries, including those already restored or purged.
 .SS "Options for restore"
 .TP
-.BR \-k ", " \-\-keep\-vault
+.BR \-k ", " \-\-keep\-copy ", " \-\-keep\-vault
 Snapshot Fork mode. On filesystems supporting copy-on-write (btrfs, XFS), issues an \fBioctl(FICLONE)\fR reflink
 to yield an independent copy with zero data duplication. On ext4, creates a kernel-level copy.
-The file remains preserved in the vault.
+The file remains preserved in storage.
 .TP
 .BR \-f ", " \-\-force
 Overwrite existing files or directories if the destination path already exists.
 .SS "Options for purge"
 .TP
 .I TARGET...
-One or more entry IDs or filenames to selectively purge from the vault. Mutually exclusive with \fB\-\-days\fR and \fB\-\-all\fR.
+One or more entry IDs or filenames to selectively purge from storage. Mutually exclusive with \fB\-\-days\fR and \fB\-\-all\fR.
 .TP
 .BR \-d ", " \-\-days " \fIDAYS\fR"
 Purge entries deleted more than \fIDAYS\fR ago (default: configured retention days, typically 14).
 .TP
 .B \-\-all
-Force permanent deletion of all preserved files in the vault.
+Force permanent deletion of all preserved files in storage.
 .TP
 .BR \-f ", " \-\-force
 Ignore nonexistent target entries without returning an error.
@@ -189,7 +189,7 @@ rinode init fish --alias-rm | source
 .SH FILESYSTEM AGNOSTICISM & ZERO-COPY GUARANTEES
 .TP
 .B ext4
-Preserves files using atomic \fBrenameat2(2)\fR within local mount-point vaults, retaining the exact inode number and preventing extent tree deallocation.
+Preserves files using atomic \fBrenameat2(2)\fR within local storage directories, retaining the exact inode number and preventing extent tree deallocation.
 .TP
 .B btrfs
 Detects individual subvolume roots via \fBstatx(STATX_MNT_ID)\fR to prevent \fBEXDEV\fR cross-subvolume link errors.
@@ -217,8 +217,8 @@ Restore entry #42 to its original location:
 Restore a file by name, overwriting existing file if present:
 .B rinode restore --force document.pdf
 .TP
-Restore an independent copy while retaining the snapshot in vault:
-.B rinode restore --keep-vault 42
+Restore an independent copy while retaining the snapshot in storage:
+.B rinode restore --keep-copy 42
 .TP
 Test whether a path matches exclusion rules:
 .B rinode exclude --test /home/user/project/node_modules/package.json
@@ -232,15 +232,18 @@ List active exclusion filters:
 View detailed inode provenance and 64KB content fingerprint:
 .B rinode inspect 42
 .TP
-Purge vault items older than 7 days:
+Purge storage items older than 7 days:
 .B rinode purge --days 7
 .SH FILES
 .TP
-.I ~/.local/share/recent-inode/rinode.db
+.I ~/.local/share/rinode/rinode.db
 SQLite database recording file provenance, inode numbers, and timestamps.
 .TP
-.I <mount_root>/.rinode-vault/
-Secure directory (permissions 0700) where vaulted inodes are stored on each respective mount.
+.I ~/.local/share/rinode/storage/
+Fallback user storage directory.
+.TP
+.I <mount_root>/.rinode-storage/
+Secure directory (permissions 0700) where preserved files are stored on each respective mount.
 .SH SEE ALSO
 .BR rm (1),
 .BR statx (2),

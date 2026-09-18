@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(Some(entry)) => {
                         preserved_count += 1;
                         println!(
-                            "Preserved [{}] '{}' (inode: {}, size: {})",
+                            "Deleted [{}] '{}' (inode: {}, size: {})",
                             entry.id,
                             entry.filename,
                             entry.inode_no,
@@ -166,7 +166,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if preserved_count > 0 || excluded_count > 0 {
                 println!(
-                    "Preserved {} item(s) ({} excluded). Run 'rinode ls' or 'rinode restore <id>' to undo.",
+                    "Deleted {} item(s) ({} excluded). Run 'rinode ls' or 'rinode restore <id>' to undo.",
                     preserved_count, excluded_count
                 );
             }
@@ -268,7 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         entry.id, entry.filename, entry.original_path
                     );
                     if keep_vault {
-                        println!("Retained snapshot copy in the vault.");
+                        println!("Retained snapshot copy in storage.");
                     }
                 }
                 Err(e) => {
@@ -291,7 +291,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("  Permissions (Oct): {:04o}", entry.mode);
                     println!("  Owner UID / GID:   {} / {}", entry.uid, entry.gid);
                     println!("  Link / Move Type:  {}", entry.link_type);
-                    println!("  Status:            {}", entry.status);
+                    let display_status = if entry.status == "PRESERVED" { "DELETED" } else { &entry.status };
+                    println!("  Status:            {}", display_status);
                     println!("  Deleted At:        {}", entry.deleted_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S %z"));
                     if let Some(restored_at) = entry.restored_at {
                         println!("  Restored At:       {}", restored_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S %z"));
@@ -310,7 +311,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         &entry.vault_path
                     };
-                    println!("  Vault Location:    {}", vault_loc);
+                    println!("  Storage Location:  {}", vault_loc);
                 }
                 None => {
                     eprintln!("rinode: no entry found with ID {}", id);
@@ -351,16 +352,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             if entry.status == "EXCLUDED" {
                                 if !force {
-                                    eprintln!("rinode: entry [{}] was excluded and never stored in the vault.", entry.id);
+                                    eprintln!("rinode: entry [{}] was excluded and never stored in storage.", entry.id);
                                     had_error = true;
                                 }
                                 continue;
                             }
                             if entry.status == "RESTORED" {
-                                let vault_path = std::path::Path::new(&entry.vault_path);
-                                if !vault_path.exists() {
+                                let disk_path = db::resolve_storage_path(&entry.vault_path);
+                                if disk_path.is_none() {
                                     if !force {
-                                        eprintln!("rinode: entry [{}] '{}' was already restored and is not in the vault.", entry.id, entry.filename);
+                                        eprintln!("rinode: entry [{}] '{}' was already restored and is not in storage.", entry.id, entry.filename);
                                         had_error = true;
                                     }
                                     continue;
@@ -368,7 +369,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             match db.purge_entry(&entry) {
                                 Ok(_) => {
-                                    println!("Purged [{}] '{}' from the vault.", entry.id, entry.filename);
+                                    println!("Purged [{}] '{}' from storage.", entry.id, entry.filename);
                                     purged_count += 1;
                                 }
                                 Err(e) => {
@@ -379,7 +380,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         None => {
                             if !force {
-                                eprintln!("rinode: no vault entry found matching '{}'", target);
+                                eprintln!("rinode: no entry found matching '{}'", target);
                                 had_error = true;
                             }
                         }
@@ -405,7 +406,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                println!("Purged {} expired file(s) from the vault.", purged_count);
+                println!("Purged {} expired file(s) from storage.", purged_count);
             }
         }
 

@@ -3,11 +3,11 @@
 _rinode() {
     local -a commands
     commands=(
-        'rm:Safely delete files or directories by moving them into the vault'
+        'rm:Safely delete files or directories by moving them into storage'
         'ls:List recently deleted files'
         'restore:Restore a deleted file or directory'
         'inspect:Inspect detailed metadata of an entry'
-        'purge:Purge expired files from the vault'
+        'purge:Purge expired files from storage'
         'tui:Launch interactive terminal dashboard'
         'init:Generate shell integration script'
         'exclude:Manage or test pattern and directory exclusions'
@@ -28,7 +28,7 @@ _rinode() {
             case $words[1] in
                 rm)
                     _arguments \
-                        '(-p --no-vault --permanent)'{-p,--no-vault,--permanent}'[Permanently delete without vaulting]' \
+                        '(-p --no-storage --no-vault --permanent)'{-p,--no-storage,--no-vault,--permanent}'[Permanently delete without moving to storage]' \
                         '(-f --force)'{-f,--force}'[Force deletion without warnings]' \
                         '(-r -R --recursive)'{-r,-R,--recursive}'[Remove directories recursively]' \
                         '(-v --verbose)'{-v,--verbose}'[Explain what is being done]' \
@@ -43,7 +43,7 @@ _rinode() {
                     ;;
                 restore)
                     _arguments \
-                        '(-k --keep-vault)'{-k,--keep-vault}'[Snapshot fork mode via CoW/Reflink]' \
+                        '(-k --keep-copy --keep-vault)'{-k,--keep-copy,--keep-vault}'[Keep snapshot copy in storage]' \
                         '(-f --force)'{-f,--force}'[Overwrite if destination exists]' \
                         '1:target:_files'
                     ;;

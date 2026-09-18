@@ -126,7 +126,7 @@ impl Config {
     pub fn load() -> Self {
         let candidates = [
             PathBuf::from("rinode.toml"),
-            directories::ProjectDirs::from("com", "recent-inode", "rinode")
+            directories::ProjectDirs::from("com", "rinode", "rinode")
                 .map(|p| p.config_dir().join("config.toml"))
                 .unwrap_or_else(|| PathBuf::from("/nonexistent")),
             PathBuf::from("/etc/rinode/config.toml"),
@@ -370,7 +370,7 @@ impl Config {
         let config_file = if Path::new("rinode.toml").exists() {
             PathBuf::from("rinode.toml")
         } else {
-            let config_dir = directories::ProjectDirs::from("com", "recent-inode", "rinode")
+            let config_dir = directories::ProjectDirs::from("com", "rinode", "rinode")
                 .map(|p| p.config_dir().to_path_buf())
                 .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config/rinode"));
 

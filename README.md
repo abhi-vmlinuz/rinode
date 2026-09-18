@@ -1,19 +1,18 @@
+<div align="center">
+
 # rinode
 
-<p align="center">
-  <strong>Zero-copy deleted file tracking and instant restoration for Linux.</strong>
-</p>
+Zero-copy deleted file tracking and instant restoration for Linux
 
-<p align="center">
-  <a href="https://github.com/abhi-vmlinuz/rinode/releases"><img src="https://img.shields.io/github/v/release/abhi-vmlinuz/rinode?style=flat-square&color=blue" alt="Release"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.75+-orange?style=flat-square&logo=rust" alt="Rust Version"></a>
-  <a href="https://kernel.org"><img src="https://img.shields.io/badge/Linux_Kernel-5.8+-007ACC?style=flat-square&logo=linux" alt="Kernel Version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
-</p>
+[![Rust Version](https://img.shields.io/badge/Rust-1.75+-orange?style=flat-square&logo=rust)](https://www.rust-lang.org)
+[![Linux Kernel](https://img.shields.io/badge/Linux_Kernel-5.8+-007ACC?style=flat-square&logo=linux)](https://kernel.org)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+</div>
 
 ---
 
-`rinode` (recent-inode) is a Linux utility that preserves deleted files and directories in constant time without copying data blocks, allowing instant restoration.
+`rinode` is a Linux utility that preserves deleted files and directories in constant time without copying data blocks, allowing instant restoration.
 
 ## Problem
 
@@ -27,13 +26,13 @@ Standard Linux deletion tools have two main drawbacks:
 `rinode` keeps inodes alive at the filesystem level:
 
 1. **Mount-boundary discovery**: It walks up the directory tree using `statx(2)` with `STATX_MNT_ID` to find the exact mount point or Btrfs subvolume root.
-2. **Constant-time move**: It relocates deleted entries into a permissions-locked vault (`.rinode-vault`, mode `0700`) on the same filesystem using `renameat2(2)`. The inode number, extent tree, permissions, and timestamps stay intact on disk.
+2. **Constant-time move**: It relocates deleted entries into a permissions-locked storage directory (`.rinode-storage`, mode `0700`) on the same filesystem using `renameat2(2)`. The inode number, extent tree, permissions, and timestamps stay intact on disk.
 3. **Audit indexing**: Metadata (original path, inode, device ID, owner, permissions, and a 64KB xxHash fingerprint) is recorded into an embedded SQLite database (`rinode.db`) in Write-Ahead Log (WAL) mode.
 4. **Instant restoration**:
    - **Move back (default)**: Recreates any missing parent directories (`mkdir -p`) and moves the inode back to its original location via `rename()`.
-   - **Snapshot fork (`--keep-vault`)**: On filesystems that support Copy-on-Write (Btrfs, XFS), it issues an `ioctl(FICLONE)` system call to point a new directory entry to the existing data blocks with zero duplication. On ext4, it copies the file.
+   - **Snapshot copy (`--keep-copy`)**: On filesystems that support Copy-on-Write (Btrfs, XFS), it issues an `ioctl(FICLONE)` system call to point a new directory entry to the existing data blocks with zero duplication. On ext4, it copies the file.
 
-### Technical Specification
+### Technical specification
 
 For an in-depth systems document analyzing the Linux inode lifecycle, extent tree deallocation, VFS link count semantics, and atomic directory transaction flows:
 
@@ -88,7 +87,7 @@ rinode
 
 - **Left pane**: Table of preserved files (ID, filename, size, deletion time, inode number).
 - **Right pane**:
-  - **Upper section (`ENTRY DETAILS`)**: Complete inode metadata, permissions, ownership, timestamps, and vault path.
+  - **Upper section (`ENTRY DETAILS`)**: Inode metadata, permissions, ownership, timestamps, and storage path.
   - **Lower section (`HISTORY`)**: Audit table of previously restored and purged files, with status and local timestamps.
 - **Navigation & focus**:
   - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Preserved Files and History.
@@ -106,7 +105,7 @@ rinode
 
 #### Deleting files
 
-`rinode rm` moves items into the local vault. It accepts standard POSIX `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-d`) for drop-in compatibility:
+`rinode rm` moves items into local storage. It accepts standard POSIX `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-d`) for drop-in compatibility:
 
 ```bash
 # Delete a single file
@@ -115,18 +114,18 @@ rinode rm report.pdf
 # Delete a directory hierarchy
 rinode rm -rf ./build_output/
 
-# Permanently delete without vaulting (unlinks directly from filesystem)
-rinode rm --no-vault unwanted_cache.tar
-# Note: -p and --permanent are supported aliases
+# Permanently delete without preserving (unlinks directly from filesystem)
+rinode rm --no-storage unwanted_cache.tar
+# Note: -p, --permanent, and --no-vault are supported aliases
 ```
 
-#### Listing vaulted files
+#### Listing deleted files
 
 ```bash
 rinode ls
 ```
 
-Shows a formatted table of active entries in the vault:
+Shows a formatted table of active entries in storage:
 
 ```text
 ╭────┬──────────────┬────────┬─────────────────────┬─────────┬─────────────────────────────────────╮
@@ -150,8 +149,9 @@ rinode restore report.pdf
 # Overwrite if a file already exists at the destination path
 rinode restore --force report.pdf
 
-# Restore a copy while keeping the snapshot in the vault
-rinode restore --keep-vault 1
+# Restore a copy while retaining the snapshot in storage
+rinode restore --keep-copy 1
+# Note: --keep-vault is supported as an alias
 ```
 
 #### Inspecting metadata
@@ -172,15 +172,15 @@ Inode Metadata for Entry #1
   Permissions (Oct): 100644
   Owner UID / GID:   1000 / 1000
   Link / Move Type:  RENAME_MOVE
-  Status:            PRESERVED
+  Status:            DELETED
   Deleted At:        2026-09-10T17:55:20.171592361+00:00
   Fast Fingerprint:  dc1025ce6c498bd0
-  Vault Location:    /home/user/.rinode-vault/report.pdf__1982182_0_1789062920171503320_cac889
+  Storage Location:  /home/user/.rinode-storage/report.pdf__1982182_0_1789062920171503320_cac889
 ```
 
 #### Managing exclusions
 
-You can prevent temporary build artifacts, log files, or specific paths from entering the vault:
+You can prevent temporary build artifacts, log files, or specific paths from being preserved:
 
 ```bash
 # Open the interactive menu
@@ -198,7 +198,7 @@ rinode exclude "/var/cache"
 # List active rules
 rinode exclude --list
 
-# Test whether a candidate path would be vaulted or unlinked directly
+# Test whether a candidate path would be preserved or unlinked directly
 rinode exclude --test /home/user/repo/node_modules/pkg/index.js
 
 # Remove a rule
@@ -207,7 +207,7 @@ rinode exclude --remove "*.log"
 
 #### Cleaning up (Purging)
 
-Permanently unlinks files from the vault and reclaims disk space:
+Permanently unlinks files from storage and reclaims disk space:
 
 ```bash
 # Purge specific files by ID or filename
@@ -221,7 +221,7 @@ rinode purge
 # Purge entries older than N days
 rinode purge --days 7
 
-# Purge all vaulted files immediately
+# Purge all preserved files immediately
 rinode purge --all
 ```
 
@@ -229,7 +229,7 @@ rinode purge --all
 
 `rinode init` generates a shell function named `r`:
 - `r` without arguments launches the terminal UI.
-- `r <files...>` vaults files using `rinode rm`.
+- `r <files...>` preserves files using `rinode rm`.
 - `r ls`, `r restore <id>`, `r inspect <id>`, and `r purge` forward to their respective subcommands.
 
 To load it, add the following to your shell configuration file:
@@ -269,9 +269,9 @@ To replace standard `rm` with `rinode rm`, add the `--alias-rm` flag:
 rinode init fish --alias-rm | source
 ```
 
-## Vault storage and filename format
+## Storage directory and filename format
 
-Files moved to the vault are stored in a root-level hidden directory on the matching mount point (`.rinode-vault`, mode `0700`).
+Files moved to storage are kept in a hidden directory on the matching mount point (`.rinode-storage`, mode `0700`) or in the user directory (`~/.local/share/rinode/storage/`).
 
 To avoid name collisions when multiple files with the same name are deleted over time across different directories, `rinode` renames each entry using this format:
 
@@ -286,7 +286,7 @@ report.pdf__1982182_0_1789062920171503320_cac889
 
 This format provides several properties:
 - **Collision immunity**: Nanosecond timestamps combined with 6 hex characters of random entropy ensure that rapid deletions of files with identical names never collide.
-- **Provenance preservation on disk**: In the event that the SQLite index (`rinode.db`) is removed or corrupted, the entry's original inode number and filesystem device minor ID remain recoverable directly from the storage filename.
+- **Provenance on disk**: In the event that the SQLite index (`rinode.db`) is removed or corrupted, the entry's original inode number and filesystem device minor ID remain recoverable directly from the storage filename.
 
 ## Edge cases and filesystem semantics
 
@@ -294,9 +294,9 @@ This format provides several properties:
 When deleting a symbolic link, `rinode` does not traverse or alter the link target. It reads the target destination path via `readlink` and saves the raw string in the audit index. During restoration, `symlinkat` recreates the symbolic link with its original target path intact, preserving relative and absolute link destinations.
 
 ### Open file descriptors
-Under Linux VFS semantics, moving an open file to another directory on the same filesystem does not invalidate open file descriptors. If a background process or service is actively writing to a file when `rinode rm` is executed, `renameat2(2)` relocates the directory entry into `.rinode-vault` without dropping the inode's link count to zero. The active process continues reading and writing to its descriptor without `EBADF` or write errors.
+Under Linux VFS semantics, moving an open file to another directory on the same filesystem does not invalidate open file descriptors. If a background process or service is actively writing to a file when `rinode rm` is executed, `renameat2(2)` relocates the directory entry into `.rinode-storage` without dropping the inode's link count to zero. The active process continues reading and writing to its descriptor without `EBADF` or write errors.
 
-If the entry is subsequently purged from the vault, the kernel unlinks the directory entry, and the physical disk extents are released once all processes holding the descriptor close it.
+If the entry is subsequently purged from storage, the kernel unlinks the directory entry, and the physical disk extents are released once all processes holding the descriptor close it.
 
 ## Configuration
 
@@ -339,7 +339,7 @@ filename_regex = [
 
 ## Filesystem support
 
-| Filesystem | Deletion mechanism | Restore mechanism | Snapshot fork (`--keep-vault`) |
+| Filesystem | Deletion mechanism | Restore mechanism | Snapshot copy (`--keep-copy`) |
 |---|---|---|---|
 | **ext4** | `renameat2` | `rename` | Kernel file copy |
 | **Btrfs** | `renameat2` within subvolume | `rename` | `ioctl(FICLONE)` (reflink CoW) |
@@ -352,4 +352,5 @@ Integration tests run against a local test hierarchy:
 ```bash
 make test
 ```
+
 

@@ -56,6 +56,27 @@ if [ "$ORIG_INO" != "$RESTORED_INO" ]; then
 fi
 echo "[+] Content and Inode matched perfectly."
 
+# TEST 1.4: Restore with --keep-copy
+echo -e "\n[TEST 1.4] Restoring with --keep-copy..."
+echo "snapshot copy test" > snap_test.txt
+"$BIN" rm snap_test.txt
+"$BIN" restore --keep-copy snap_test.txt
+if [ ! -f snap_test.txt ]; then
+    echo "[!] Error: snap_test.txt was not restored with --keep-copy!"
+    exit 1
+fi
+INSPECT_LOC=$("$BIN" inspect 2 | grep "Storage Location:" | awk '{print $NF}')
+if [ ! -f "$INSPECT_LOC" ]; then
+    echo "[!] Error: Snapshot file not retained in storage on disk!"
+    exit 1
+fi
+if ! "$BIN" ls -a | grep -q "snap_test.txt"; then
+    echo "[!] Error: snap_test.txt not visible in ls -a after --keep-copy!"
+    exit 1
+fi
+"$BIN" purge 2
+echo "[+] Snapshot copy retained and restored correctly."
+
 # TEST 2: Nested directory deletion and restoration
 echo -e "\n[TEST 2] Directory tree deletion & restoration..."
 mkdir -p nested/sub1/sub2
@@ -236,7 +257,18 @@ if "$BIN" ls | grep -q "perm2.txt"; then
     echo "[!] Error: perm2.txt was indexed in the vault despite -p!"
     exit 1
 fi
-echo "[+] Direct unlinking (--no-vault, -p) works without indexing."
+
+echo "permanent junk 3" > perm3.txt
+"$BIN" rm --no-storage perm3.txt
+if [ -f perm3.txt ]; then
+    echo "[!] Error: perm3.txt still exists after --no-storage!"
+    exit 1
+fi
+if "$BIN" ls | grep -q "perm3.txt"; then
+    echo "[!] Error: perm3.txt was indexed in storage despite --no-storage!"
+    exit 1
+fi
+echo "[+] Direct unlinking (--no-storage, --no-vault, -p) works without indexing."
 
 # TEST 8: Shell init generation test
 echo -e "\n[TEST 8] Shell init generation test (fish, bash, zsh, auto-detect, custom alias)..."
@@ -282,6 +314,85 @@ echo -e "\n[TEST 9] Exclusion management CLI test..."
 }
 echo "[+] Exclusion management CLI functioning as expected."
 
+# TEST 10: Legacy migration test (~/.local/share/recent-inode -> ~/.local/share/rinode)
+echo -e "\n[TEST 10] Testing automatic migration of legacy storage and database..."
+LEGACY_ROOT="$TEST_ROOT/legacy_test"
+mkdir -p "$LEGACY_ROOT"
+MIGRATE_DATA="$LEGACY_ROOT/data"
+mkdir -p "$MIGRATE_DATA/recent-inode/vault"
+echo "legacy file content" > "$MIGRATE_DATA/recent-inode/vault/legacy_test.txt"
+
+sqlite3 "$MIGRATE_DATA/recent-inode/rinode.db" <<EOF
+CREATE TABLE entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    original_path TEXT NOT NULL,
+    vault_path TEXT NOT NULL,
+    inode_no INTEGER NOT NULL,
+    dev_major INTEGER NOT NULL,
+    dev_minor INTEGER NOT NULL,
+    mnt_id INTEGER NOT NULL,
+    file_size INTEGER NOT NULL,
+    mode INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    gid INTEGER NOT NULL,
+    is_directory BOOLEAN NOT NULL,
+    link_type TEXT NOT NULL,
+    symlink_target TEXT,
+    quick_fingerprint TEXT,
+    status TEXT NOT NULL DEFAULT 'PRESERVED',
+    deleted_at TEXT NOT NULL,
+    restored_at TEXT
+);
+INSERT INTO entries VALUES (
+    1,
+    'legacy_test.txt',
+    '$LEGACY_ROOT/legacy_restored.txt',
+    '$MIGRATE_DATA/recent-inode/vault/legacy_test.txt',
+    12345,
+    0, 0, 0,
+    19,
+    33188,
+    1000, 1000,
+    0,
+    'RENAME_MOVE',
+    NULL,
+    'abcd',
+    'PRESERVED',
+    '2026-09-01T00:00:00Z',
+    NULL
+);
+EOF
+
+# Run rinode with XDG_DATA_HOME pointing to MIGRATE_DATA
+XDG_DATA_HOME="$MIGRATE_DATA" "$BIN" ls
+
+# Verify directory migration
+if [ -d "$MIGRATE_DATA/recent-inode" ]; then
+    echo "[!] Error: Legacy directory $MIGRATE_DATA/recent-inode still exists!"
+    exit 1
+fi
+if [ ! -d "$MIGRATE_DATA/rinode/storage" ]; then
+    echo "[!] Error: Modern storage directory $MIGRATE_DATA/rinode/storage was not created!"
+    exit 1
+fi
+if [ ! -f "$MIGRATE_DATA/rinode/storage/legacy_test.txt" ]; then
+    echo "[!] Error: Legacy file not moved to modern storage location!"
+    exit 1
+fi
+
+# Verify restoring the migrated entry
+XDG_DATA_HOME="$MIGRATE_DATA" "$BIN" restore 1
+if [ ! -f "$LEGACY_ROOT/legacy_restored.txt" ]; then
+    echo "[!] Error: Migrated legacy file failed to restore!"
+    exit 1
+fi
+MIG_CONTENT=$(cat "$LEGACY_ROOT/legacy_restored.txt")
+if [ "$MIG_CONTENT" != "legacy file content" ]; then
+    echo "[!] Error: Restored legacy content mismatch: $MIG_CONTENT"
+    exit 1
+fi
+echo "[+] Legacy migration completed and restored successfully."
 
 # Cleanup test directory
 rm -rf "$TEST_ROOT"

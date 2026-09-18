@@ -52,19 +52,97 @@ pub struct EntryRecord {
     pub purged_at: Option<DateTime<Utc>>,
 }
 
+/// Resolves the storage path on disk, automatically handling legacy path translations if needed
+pub fn resolve_storage_path(recorded_path: &str) -> Option<PathBuf> {
+    let p = Path::new(recorded_path);
+    if p.exists() {
+        return Some(p.to_path_buf());
+    }
+
+    let candidates = [
+        recorded_path.replace("/recent-inode/vault/", "/rinode/storage/"),
+        recorded_path.replace("/recent-inode/", "/rinode/"),
+        recorded_path.replace("/.rinode-vault/", "/.rinode-storage/"),
+        recorded_path.replace("/rinode/storage/", "/recent-inode/vault/"),
+        recorded_path.replace("/.rinode-storage/", "/.rinode-vault/"),
+    ];
+
+    for candidate in candidates {
+        let cand_path = PathBuf::from(candidate);
+        if cand_path.exists() {
+            return Some(cand_path);
+        }
+    }
+
+    None
+}
+
 pub struct Db {
     conn: Connection,
 }
 
 impl Db {
     pub fn open_default() -> Result<Self> {
-        let db_dir = directories::BaseDirs::new()
-            .map(|b| b.data_local_dir().join("recent-inode"))
-            .unwrap_or_else(|| PathBuf::from(".rinode"));
+        let base_data_dir = directories::BaseDirs::new()
+            .map(|b| b.data_local_dir().to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
 
+        Self::migrate_legacy_storage(&base_data_dir);
+
+        let db_dir = base_data_dir.join("rinode");
         fs::create_dir_all(&db_dir).ok();
         let db_path = db_dir.join("rinode.db");
         Self::open(&db_path)
+    }
+
+    pub fn migrate_legacy_storage(base_data_dir: &Path) {
+        let legacy_dir = base_data_dir.join("recent-inode");
+        let new_dir = base_data_dir.join("rinode");
+
+        if legacy_dir.exists() {
+            if !new_dir.exists() {
+                let _ = fs::rename(&legacy_dir, &new_dir);
+            } else {
+                let legacy_db = legacy_dir.join("rinode.db");
+                let new_db = new_dir.join("rinode.db");
+                if legacy_db.exists() && !new_db.exists() {
+                    let _ = fs::rename(&legacy_db, &new_db);
+                }
+
+                let legacy_vault = legacy_dir.join("vault");
+                let new_storage = new_dir.join("storage");
+                if legacy_vault.exists() {
+                    let _ = fs::create_dir_all(&new_storage);
+                    if let Ok(entries) = fs::read_dir(&legacy_vault) {
+                        for entry in entries.flatten() {
+                            let dest = new_storage.join(entry.file_name());
+                            let _ = fs::rename(entry.path(), dest);
+                        }
+                    }
+                    let _ = fs::remove_dir_all(&legacy_vault);
+                }
+                let _ = fs::remove_dir_all(&legacy_dir);
+            }
+        }
+
+        if new_dir.exists() {
+            let legacy_vault = new_dir.join("vault");
+            let new_storage = new_dir.join("storage");
+            if legacy_vault.exists() {
+                if !new_storage.exists() {
+                    let _ = fs::rename(&legacy_vault, &new_storage);
+                } else {
+                    let _ = fs::create_dir_all(&new_storage);
+                    if let Ok(entries) = fs::read_dir(&legacy_vault) {
+                        for entry in entries.flatten() {
+                            let dest = new_storage.join(entry.file_name());
+                            let _ = fs::rename(entry.path(), dest);
+                        }
+                    }
+                    let _ = fs::remove_dir_all(&legacy_vault);
+                }
+            }
+        }
     }
 
     pub fn open(db_path: &Path) -> Result<Self> {
@@ -80,7 +158,19 @@ impl Db {
 
         let db = Db { conn };
         db.create_tables()?;
+        db.migrate_legacy_db_paths().ok();
         Ok(db)
+    }
+
+    fn migrate_legacy_db_paths(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "BEGIN TRANSACTION;
+            UPDATE entries SET vault_path = REPLACE(vault_path, '/recent-inode/vault/', '/rinode/storage/') WHERE vault_path LIKE '%/recent-inode/vault/%';
+            UPDATE entries SET vault_path = REPLACE(vault_path, '/recent-inode/', '/rinode/') WHERE vault_path LIKE '%/recent-inode/%';
+            UPDATE entries SET vault_path = REPLACE(vault_path, '/.rinode-vault/', '/.rinode-storage/') WHERE vault_path LIKE '%/.rinode-vault/%';
+            COMMIT;",
+        )?;
+        Ok(())
     }
 
     fn create_tables(&self) -> Result<()> {
@@ -113,14 +203,19 @@ impl Db {
             CREATE INDEX IF NOT EXISTS idx_dev_inode ON entries(dev_major, dev_minor, inode_no);
             CREATE INDEX IF NOT EXISTS idx_filename ON entries(filename);
             CREATE INDEX IF NOT EXISTS idx_deleted_at ON entries(deleted_at);
-            CREATE INDEX IF NOT EXISTS idx_restored_at ON entries(restored_at);
-            CREATE INDEX IF NOT EXISTS idx_purged_at ON entries(purged_at);
             ",
         )?;
 
         // Ensure restored_at and purged_at columns exist in databases created by earlier versions
         let _ = self.conn.execute("ALTER TABLE entries ADD COLUMN restored_at TEXT", []);
         let _ = self.conn.execute("ALTER TABLE entries ADD COLUMN purged_at TEXT", []);
+
+        self.conn.execute_batch(
+            "
+            CREATE INDEX IF NOT EXISTS idx_restored_at ON entries(restored_at);
+            CREATE INDEX IF NOT EXISTS idx_purged_at ON entries(purged_at);
+            ",
+        )?;
 
         // Migrate older databases having restrictive CHECK constraints on status
         let has_old_check: bool = self.conn.query_row(
@@ -333,12 +428,11 @@ impl Db {
     }
 
     pub fn purge_entry(&self, entry: &EntryRecord) -> Result<()> {
-        let vault_path = Path::new(&entry.vault_path);
-        if vault_path.exists() {
+        if let Some(path) = resolve_storage_path(&entry.vault_path) {
             if entry.is_directory {
-                std::fs::remove_dir_all(vault_path).ok();
+                std::fs::remove_dir_all(&path).ok();
             } else {
-                std::fs::remove_file(vault_path).ok();
+                std::fs::remove_file(&path).ok();
             }
         }
         self.mark_purged(entry.id)

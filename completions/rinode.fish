@@ -4,11 +4,11 @@
 complete -c rinode -f
 
 # Main subcommands
-complete -c rinode -n "__fish_use_subcommand" -a "rm" -d "Safely delete files or directories by moving them into the vault"
+complete -c rinode -n "__fish_use_subcommand" -a "rm" -d "Safely delete files or directories by moving them into storage"
 complete -c rinode -n "__fish_use_subcommand" -a "ls" -d "List recently deleted files"
 complete -c rinode -n "__fish_use_subcommand" -a "restore" -d "Restore a deleted file or directory"
 complete -c rinode -n "__fish_use_subcommand" -a "inspect" -d "Inspect detailed metadata of an entry"
-complete -c rinode -n "__fish_use_subcommand" -a "purge" -d "Purge expired files from the vault"
+complete -c rinode -n "__fish_use_subcommand" -a "purge" -d "Purge expired files from storage"
 complete -c rinode -n "__fish_use_subcommand" -a "tui" -d "Launch interactive terminal dashboard"
 complete -c rinode -n "__fish_use_subcommand" -a "init" -d "Generate shell integration script"
 complete -c rinode -n "__fish_use_subcommand" -a "exclude" -d "Manage or test pattern and directory exclusions"
@@ -16,7 +16,7 @@ complete -c rinode -n "__fish_use_subcommand" -a "help" -d "Print help informati
 
 # Flags for rm
 complete -c rinode -n "__fish_seen_subcommand_from rm" -F
-complete -c rinode -n "__fish_seen_subcommand_from rm" -s p -l no-vault -l permanent -d "Permanently delete without vaulting"
+complete -c rinode -n "__fish_seen_subcommand_from rm" -s p -l no-storage -l no-vault -l permanent -d "Permanently delete without moving to storage"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s f -l force -d "Force deletion without warnings"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s r -s R -l recursive -d "Remove directories recursively (POSIX compatibility)"
 complete -c rinode -n "__fish_seen_subcommand_from rm" -s v -l verbose -d "Explain what is being done"
@@ -30,7 +30,7 @@ complete -c rinode -n "__fish_seen_subcommand_from ls" -s a -l all -d "Show all 
 complete -c rinode -n "__fish_seen_subcommand_from ls" -s h -l help -d "Print help"
 
 # Flags & dynamic completion for restore
-complete -c rinode -n "__fish_seen_subcommand_from restore" -s k -l keep-vault -d "Snapshot fork mode via CoW/Reflink"
+complete -c rinode -n "__fish_seen_subcommand_from restore" -s k -l keep-copy -l keep-vault -d "Keep snapshot copy in storage"
 complete -c rinode -n "__fish_seen_subcommand_from restore" -s f -l force -d "Overwrite if destination exists"
 complete -c rinode -n "__fish_seen_subcommand_from restore" -s h -l help -d "Print help"
 complete -c rinode -n "__fish_seen_subcommand_from restore" -a "(rinode ls --ids 2>/dev/null)"

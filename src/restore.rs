@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{Error, ErrorKind, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::db::{Db, EntryRecord};
 use crate::syscalls::{reflink_clone, renameat2_path};
@@ -80,26 +80,25 @@ pub fn restore_entry(db: &Db, entry: &EntryRecord, keep_vault: bool, force: bool
     }
 
     // 4. Handle Regular Files and Directories
-    let vault_path = Path::new(&entry.vault_path);
-    if !vault_path.exists() {
-        return Err(Error::new(
+    let storage_path = crate::db::resolve_storage_path(&entry.vault_path).ok_or_else(|| {
+        Error::new(
             ErrorKind::NotFound,
-            format!("Vault file '{}' is missing on disk", vault_path.display()),
-        ));
-    }
+            format!("Storage file '{}' is missing on disk", entry.vault_path),
+        )
+    })?;
 
     if keep_vault && !entry.is_directory {
         // Snapshot fork mode: Try CoW reflink first, fallback to standard copy
-        let src_file = File::open(vault_path)?;
+        let src_file = File::open(&storage_path)?;
         let dst_file = File::create(&orig_path)?;
 
         if reflink_clone(&src_file, &dst_file).is_err() {
             drop(dst_file);
-            fs::copy(vault_path, &orig_path)?;
+            fs::copy(&storage_path, &orig_path)?;
         }
     } else {
         // Default Consume mode: Atomic rename back to original path
-        renameat2_path(vault_path, &orig_path, 0)?;
+        renameat2_path(&storage_path, &orig_path, 0)?;
     }
 
     // 5. Update database status to RESTORED

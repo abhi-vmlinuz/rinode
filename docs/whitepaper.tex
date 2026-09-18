@@ -75,7 +75,7 @@
 \begin{abstract}
 \noindent In standard Linux environments, unlinking a file through the POSIX \texttt{unlink(2)} interface immediately severs its directory entry binding and decrements the inode's hardlink reference count. When this count reaches zero and all active file descriptors close, filesystems like ext4, XFS, and Btrfs purge extent trees, mark block group allocation bitmaps as free, and clear inode metadata records. Conventional user-space mitigations, such as desktop trash specifications (FreeDesktop.org Trash), prevent immediate data destruction by moving files across mount points via deep byte-by-byte copies. This introduces severe $O(N)$ write amplification, depletes I/O bandwidth, delays execution when removing large file hierarchies, and discards lower-level inode provenance. 
 
-This paper presents the architectural design, kernel interfaces, and formal evaluation of \texttt{rinode} (recent-inode), a high-performance systems utility engineered for Linux that achieves constant-time $O(1)$ deleted file preservation without duplicating data blocks. By coupling mount-boundary discovery via \texttt{statx(2)} with \texttt{STATX\_MNT\_ID}, atomic same-filesystem vaulting through \texttt{renameat2(2)}, Write-Ahead Logged (WAL) SQLite metadata indexing, and dual-mode restoration supporting copy-on-write reflink clones (\texttt{ioctl(FICLONE)}), \texttt{rinode} preserves original inode numbers, permissions, timestamps, and extended attributes with zero data duplication. We analyze the VFS invariants governing directory entries and inodes, evaluate transaction safety under concurrent modifications, examine race mitigation via directory file descriptors, and establish empirical benchmarks demonstrating sub-millisecond preservation of multi-gigabyte datasets and deep directory trees.
+This paper presents the architectural design, kernel interfaces, and formal evaluation of \texttt{rinode}, a high-performance systems utility engineered for Linux that achieves constant-time $O(1)$ deleted file preservation without duplicating data blocks. By coupling mount-boundary discovery via \texttt{statx(2)} with \texttt{STATX\_MNT\_ID}, atomic same-filesystem preservation through \texttt{renameat2(2)}, Write-Ahead Logged (WAL) SQLite metadata indexing, and dual-mode restoration supporting copy-on-write reflink clones (\texttt{ioctl(FICLONE)}), \texttt{rinode} preserves original inode numbers, permissions, timestamps, and extended attributes with zero data duplication. We analyze the VFS invariants governing directory entries and inodes, evaluate transaction safety under concurrent modifications, examine race mitigation via directory file descriptors, and establish empirical benchmarks demonstrating sub-millisecond preservation of multi-gigabyte datasets and deep directory trees.
 \end{abstract}
 
 \vspace{1em}
@@ -218,7 +218,7 @@ To navigate this limitation, \texttt{rinode} leverages Linux 5.8+ \texttt{statx(
                                      v
 +--------------------------------------------------------------------------+
 |                     Mount-Boundary Discovery Module                      |
-|          statx(2) + STATX_MNT_ID traversal -> Local .rinode-vault        |
+|          statx(2) + STATX_MNT_ID traversal -> Local .rinode-storage      |
 +--------------------------------------------------------------------------+
                   |                                      |
                   v                                      v
@@ -240,7 +240,7 @@ To navigate this limitation, \texttt{rinode} leverages Linux 5.8+ \texttt{statx(
 \label{fig:arch}
 \end{figure}
 
-\subsection{Per-Mount and Subvolume Vault Topology}
+\subsection{Per-Mount and Subvolume Storage Topology}
 To guarantee that file relocations never trigger \texttt{EXDEV}, \texttt{rinode} resolves the mount topology dynamically. When invoked against a target path:
 \begin{enumerate}[leftmargin=1.5em]
     \item The utility executes \texttt{statx(AT\_FDCWD, target, AT\_SYMLINK\_NOFOLLOW, STATX\_ALL | STATX\_MNT\_ID)}.
@@ -249,13 +249,13 @@ To guarantee that file relocations never trigger \texttt{EXDEV}, \texttt{rinode}
         P_0 = \text{target.parent()}, \quad P_{i+1} = P_i\text{.parent()}
     \end{equation}
     \item The traversal terminates at the exact directory $P_k$ where $P_{k+1}\text{.mnt\_id} \neq P_k\text{.mnt\_id}$ or when reaching filesystem root (\texttt{/}).
-    \item The candidate vault path is evaluated at:
+    \item The candidate storage path is evaluated at:
     \begin{equation}
-        \text{VaultCandidate} = P_k \mathbin{/} \text{``.rinode-vault''}
+        \text{StorageCandidate} = P_k \mathbin{/} \text{``.rinode-storage''}
     \end{equation}
 \end{enumerate}
 
-If the user possesses write permissions on the mount root (common on secondary volumes, external drives, and dedicated home subvolumes), the vault is created directly on that mount. If the mount root is read-only or restricted to root (e.g., standard \texttt{/} owned by UID 0), \texttt{rinode} falls back gracefully to the user's localized state directory (\texttt{\~{}/.local/share/recent-inode/vault}), ensuring the primary home filesystem retains zero-copy vaulting.
+If the user possesses write permissions on the mount root (common on secondary volumes, external drives, and dedicated home subvolumes), the storage directory is created directly on that mount. If the mount root is read-only or restricted to root (e.g., standard \texttt{/} owned by UID 0), \texttt{rinode} falls back gracefully to the user's localized state directory (\texttt{\~{}/.local/share/rinode/storage}), ensuring the primary home filesystem retains zero-copy preservation.
 
 \subsection{Collision-Proof Unique Vault Identifier Generation}
 When files are moved into a flat vault directory, name collisions are inevitable (e.g., deleting multiple files named \texttt{Makefile} from different repositories). \texttt{rinode} resolves this using a structured, deterministic naming scheme:
@@ -277,7 +277,7 @@ An example generated vault path appears as:
 \end{center}
 
 \subsection{Metadata Audit Index and SQLite WAL Mode}
-Audit metadata is stored within an embedded SQLite database (\texttt{rinode.db}) placed in \texttt{\~{}/.local/share/recent-inode/}. The database operates strictly under \textbf{Write-Ahead Logging (WAL)} mode:
+Audit metadata is stored within an embedded SQLite database (\texttt{rinode.db}) placed in \texttt{\~{}/.local/share/rinode/}. The database operates strictly under \textbf{Write-Ahead Logging (WAL)} mode:
 \begin{lstlisting}[language=SQL]
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -325,12 +325,12 @@ When undeleting a file, two distinct usage patterns emerge, requiring differenti
 \subsubsection{Mode 1: Consume Restoration (Default)}
 The entry is moved from the vault back to its original path via \texttt{renameat2(2)}. Missing parent directories are reconstructed automatically (\texttt{mkdir -p}). The vault file dentry is consumed, and the database marks the record status as \texttt{RESTORED} with an exact UTC timestamp. This operation takes $O(1)$ time, preserves the original inode number without modification, and releases zero storage blocks.
 
-\subsubsection{Mode 2: Snapshot Fork Restoration (\texttt{--keep-vault})}
-If the user desires to restore a file while retaining an untouched snapshot in the vault, the inode cannot simply be moved back. To prevent duplicating blocks on modern filesystems, \texttt{rinode} issues an \texttt{ioctl(FICLONE)} system call:
+\subsubsection{Mode 2: Snapshot Fork Restoration (\texttt{--keep-copy})}
+If the user desires to restore a file while retaining an untouched snapshot in storage, the inode cannot simply be moved back. To prevent duplicating blocks on modern filesystems, \texttt{rinode} issues an \texttt{ioctl(FICLONE)} system call:
 \begin{lstlisting}[language=C]
 ioctl(destination_fd, FICLONE, source_fd);
 \end{lstlisting}
-On Btrfs and XFS, this instructs the filesystem extent allocator to point the new inode's extent records to the existing physical blocks on disk. The operation completes in microseconds with zero block copies. If invoked on filesystems lacking CoW support (such as standard ext4), \texttt{rinode} falls back cleanly to kernel-level data streaming via \texttt{copy\_file\_range(2)} or localized buffered copying.
+On Btrfs and XFS, this instructs the filesystem extent allocator to point the new inode's extent records to the existing physical blocks on disk. The operation completes in microseconds with zero block copies. If invoked on filesystems lacking CoW support (such as standard ext4), \texttt{rinode} falls back cleanly to kernel-level data streaming via \texttt{copy\_file\_range(2)} or localized buffered copying. The CLI also retains \texttt{--keep-vault} as a backward-compatible alias.
 
 % ==============================================================================
 \section{Syscall-Level Walkthrough \& Transactions}
@@ -348,7 +348,7 @@ User executes: rinode rm /home/user/workspace/report.pdf
 2. Metadata Probe    : statx(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW, 
                              STATX_ALL | STATX_MNT_ID, &stx)
 3. Fingerprint (64KB): Reads first 64KB -> xxHash64 (in-memory)
-4. Vault Discovery   : Iterative statx parent traversal -> .rinode-vault
+4. Storage Discovery : Iterative statx parent traversal -> .rinode-storage
 5. Unique Identifier : Generates "report.pdf__1982182_0_178906..._cac889"
 6. Atomic Move       : renameat2(AT_FDCWD, path, AT_FDCWD, vault_path, 0)
 7. Audit Indexing    : BEGIN IMMEDIATE;
@@ -393,7 +393,7 @@ For each identified candidate, \texttt{rinode} invokes \texttt{unlink(vault\_pat
 % ==============================================================================
 
 \subsection{Arbitrary Directory Hierarchies}
-A major advantage of \texttt{renameat2} over hardlinks is its treatment of directory structures. While POSIX forbids hardlinking directories, \texttt{renameat2} treats a directory dentry identically to a file dentry. Moving a directory containing 500,000 files into \texttt{.rinode-vault} updates only the root dentry in the parent directory. The entire subtree—with all constituent inodes, subdirectories, and extent trees—is vaulted instantaneously in a single atomic kernel transaction without recursive scanning.
+A major advantage of \texttt{renameat2} over hardlinks is its treatment of directory structures. While POSIX forbids hardlinking directories, \texttt{renameat2} treats a directory dentry identically to a file dentry. Moving a directory containing 500,000 files into \texttt{.rinode-storage} updates only the root dentry in the parent directory. The entire subtree—with all constituent inodes, subdirectories, and extent trees—is preserved instantaneously in a single atomic kernel transaction without recursive scanning.
 
 \subsection{Symbolic Links}
 Symbolic links pose unique security and operational challenges:

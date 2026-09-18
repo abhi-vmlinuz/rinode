@@ -24,7 +24,7 @@ _rinode() {
     case "$subcmd" in
         rm)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--no-vault --permanent -p --force -f -r -R --recursive -v --verbose -i --interactive -d --dir --help -h" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--no-storage --no-vault --permanent -p --force -f -r -R --recursive -v --verbose -i --interactive -d --dir --help -h" -- "$cur") )
             else
                 if declare -F _filedir >/dev/null 2>&1; then
                     _filedir
@@ -38,7 +38,7 @@ _rinode() {
             ;;
         restore)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--keep-vault -k --force -f --help -h" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--keep-copy --keep-vault -k --force -f --help -h" -- "$cur") )
             else
                 local active_entries
                 active_entries=$(rinode ls --ids 2>/dev/null | tr '\t' ' ')
