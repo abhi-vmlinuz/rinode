@@ -8,7 +8,7 @@ ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
 CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/home/$$SUDO_USER/.cargo/bin/cargo" ]; then echo "/home/$$SUDO_USER/.cargo/bin/cargo"; elif [ -x "$$HOME/.cargo/bin/cargo" ]; then echo "$$HOME/.cargo/bin/cargo"; else echo cargo; fi)
 
-.PHONY: all build release install install-user uninstall uninstall-user purge test clean whitepaper
+.PHONY: all build release install uninstall purge test clean whitepaper
 
 all: build
 
@@ -55,36 +55,6 @@ install: target/release/rinode
 	@echo "  rinode init fish --alias-rm | source"
 	@echo "------------------------------------------------------------"
 
-install-user: target/release/rinode
-	install -d $(HOME)/.local/bin
-	install -m 755 target/release/rinode $(HOME)/.local/bin/rinode
-	install -d $(HOME)/.local/share/man/man1
-	install -m 644 man/rinode.1 $(HOME)/.local/share/man/man1/rinode.1
-	install -d $(HOME)/.config/fish/completions
-	install -m 644 completions/rinode.fish $(HOME)/.config/fish/completions/rinode.fish
-	install -d $(HOME)/.local/share/bash-completion/completions
-	install -m 644 completions/rinode.bash $(HOME)/.local/share/bash-completion/completions/rinode
-	install -d $(HOME)/.config/rinode
-	test -f $(HOME)/.config/rinode/config.toml || install -m 644 rinode.toml $(HOME)/.config/rinode/config.toml
-	@echo ""
-	@echo "rinode installed locally to $(HOME)/.local/bin/rinode."
-	@echo "------------------------------------------------------------"
-	@echo "1. Ensure $(HOME)/.local/bin is in your PATH."
-	@echo "2. Add shell integration to your shell configuration:"
-	@echo ""
-	@echo "  Fish (~/.config/fish/config.fish):"
-	@echo "    rinode init fish | source"
-	@echo ""
-	@echo "  Bash (~/.bashrc):"
-	@echo "    eval \"\$$(rinode init bash)\""
-	@echo ""
-	@echo "  Zsh (~/.zshrc):"
-	@echo "    eval \"\$$(rinode init zsh)\""
-	@echo ""
-	@echo "To also alias 'rm' to 'rinode rm', add --alias-rm to the command:"
-	@echo "  rinode init fish --alias-rm | source"
-	@echo "------------------------------------------------------------"
-
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/rinode
 	rm -f $(DESTDIR)$(MANDIR)/rinode.1
@@ -93,6 +63,13 @@ uninstall:
 	rm -f $(DESTDIR)$(FISHCOMPDIR)/rinode.fish
 	rm -f $(DESTDIR)$(ZSHCOMPDIR)/_rinode
 	rm -rf $(DESTDIR)$(SYSCONFDIR)
+	rm -f /root/.local/bin/rinode
+	rm -f /root/.local/share/man/man1/rinode.1
+	rm -f /root/.config/fish/completions/rinode.fish
+	rm -f /root/.local/share/bash-completion/completions/rinode
+	rm -rf /root/.config/rinode
+	rm -rf /root/.local/share/rinode
+	rm -rf /root/.local/share/recent-inode
 	@if [ -n "$$SUDO_USER" ]; then \
 		USER_HOME=$$(getent passwd "$$SUDO_USER" | cut -d: -f6); \
 		if [ -n "$$USER_HOME" ]; then \
@@ -108,21 +85,13 @@ uninstall:
 	rm -rf $(HOME)/.config/rinode
 	rm -rf $(HOME)/.local/share/rinode
 	rm -rf $(HOME)/.local/share/recent-inode
-	@if [ -n "$$XDG_CONFIG_HOME" ]; then rm -rf "$$XDG_CONFIG_HOME/rinode"; fi
-	@if [ -n "$$XDG_DATA_HOME" ]; then rm -rf "$$XDG_DATA_HOME/rinode" "$$XDG_DATA_HOME/recent-inode"; fi
-	@echo "rinode, configurations, databases, and storage uninstalled."
-
-uninstall-user:
 	rm -f $(HOME)/.local/bin/rinode
 	rm -f $(HOME)/.local/share/man/man1/rinode.1
 	rm -f $(HOME)/.config/fish/completions/rinode.fish
 	rm -f $(HOME)/.local/share/bash-completion/completions/rinode
-	rm -rf $(HOME)/.config/rinode
-	rm -rf $(HOME)/.local/share/rinode
-	rm -rf $(HOME)/.local/share/recent-inode
 	@if [ -n "$$XDG_CONFIG_HOME" ]; then rm -rf "$$XDG_CONFIG_HOME/rinode"; fi
 	@if [ -n "$$XDG_DATA_HOME" ]; then rm -rf "$$XDG_DATA_HOME/rinode" "$$XDG_DATA_HOME/recent-inode"; fi
-	@echo "rinode user installation, configurations, databases, and storage uninstalled."
+	@echo "rinode, configurations, databases, and storage uninstalled."
 
 purge: uninstall
 

@@ -50,7 +50,7 @@ Requirements:
 make
 ```
 
-### Systemwide installation
+### Installation
 
 Installs the binary to `/usr/local/bin`, man page to `/usr/local/share/man/man1`, and shell completions for Fish, Bash, and Zsh:
 
@@ -58,21 +58,9 @@ Installs the binary to `/usr/local/bin`, man page to `/usr/local/share/man/man1`
 sudo make install
 ```
 
-### Local user installation
-
-Installs to `~/.local/bin` and user completion directories:
-
-```bash
-make install-user
-```
-
 To uninstall (removes binaries, completions, configurations, databases, and storage):
 ```bash
-# Systemwide uninstall
 sudo make uninstall
-
-# Local user uninstall
-make uninstall-user
 ```
 
 ## Usage
