@@ -68,7 +68,11 @@ make install-user
 
 To uninstall:
 ```bash
+# Systemwide uninstall
 sudo make uninstall
+
+# Local user uninstall
+make uninstall-user
 ```
 
 ## Usage

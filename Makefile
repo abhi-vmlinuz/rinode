@@ -8,7 +8,7 @@ ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
 CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/home/$$SUDO_USER/.cargo/bin/cargo" ]; then echo "/home/$$SUDO_USER/.cargo/bin/cargo"; elif [ -x "$$HOME/.cargo/bin/cargo" ]; then echo "$$HOME/.cargo/bin/cargo"; else echo cargo; fi)
 
-.PHONY: all build release install install-user uninstall test clean whitepaper
+.PHONY: all build release install install-user uninstall uninstall-user test clean whitepaper
 
 all: build
 
@@ -93,6 +93,13 @@ uninstall:
 	rm -f $(DESTDIR)$(FISHCOMPDIR)/rinode.fish
 	rm -f $(DESTDIR)$(ZSHCOMPDIR)/_rinode
 	@echo "rinode uninstalled."
+
+uninstall-user:
+	rm -f $(HOME)/.local/bin/rinode
+	rm -f $(HOME)/.local/share/man/man1/rinode.1
+	rm -f $(HOME)/.config/fish/completions/rinode.fish
+	rm -f $(HOME)/.local/share/bash-completion/completions/rinode
+	@echo "rinode user installation uninstalled."
 
 test: build
 	bash tests/integration_test.sh
