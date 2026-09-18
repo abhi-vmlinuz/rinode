@@ -113,36 +113,72 @@ impl VaultManager {
 
         let is_excluded = self.config.is_excluded(&abs_path, &filename);
 
-        // If permanently requested or excluded by config, delete directly without vaulting
-        if permanent || is_excluded {
-            if is_excluded && !permanent {
-                if let Ok(info) = statx_path(&abs_path) {
-                    let symlink_target = if info.is_symlink {
-                        fs::read_link(&abs_path).ok().map(|p| p.to_string_lossy().to_string())
-                    } else {
-                        None
-                    };
-                    let new_entry = NewEntry {
-                        dev_major: info.dev_major,
-                        dev_minor: info.dev_minor,
-                        mnt_id: info.mnt_id,
-                        inode_no: info.ino,
-                        original_path: abs_path.to_string_lossy().to_string(),
-                        filename: filename.clone(),
-                        file_size: if info.is_symlink { 0 } else { info.size },
-                        mode: info.mode,
-                        uid: info.uid,
-                        gid: info.gid,
-                        quick_fingerprint: None,
-                        vault_path: "".to_string(),
-                        deleted_at: Utc::now(),
-                        status: "EXCLUDED".to_string(),
-                        is_directory: info.is_dir,
-                        symlink_target,
-                        link_type: if info.is_symlink { "SYMLINK".to_string() } else { "UNLINK".to_string() },
-                    };
-                    let _ = db.insert_entry(&new_entry);
-                }
+        // If permanently requested (-p / --no-storage / --permanent), unlink directly and record in history as PURGED
+        if permanent {
+            let info = statx_path(&abs_path)?;
+            let symlink_target = if info.is_symlink {
+                fs::read_link(&abs_path).ok().map(|p| p.to_string_lossy().to_string())
+            } else {
+                None
+            };
+
+            if abs_path.is_dir() {
+                fs::remove_dir_all(&abs_path)?;
+            } else {
+                fs::remove_file(&abs_path)?;
+            }
+
+            let new_entry = NewEntry {
+                dev_major: info.dev_major,
+                dev_minor: info.dev_minor,
+                mnt_id: info.mnt_id,
+                inode_no: info.ino,
+                original_path: abs_path.to_string_lossy().to_string(),
+                filename: filename.clone(),
+                file_size: if info.is_symlink { 0 } else { info.size },
+                mode: info.mode,
+                uid: info.uid,
+                gid: info.gid,
+                quick_fingerprint: None,
+                vault_path: "".to_string(),
+                deleted_at: Utc::now(),
+                status: "PURGED".to_string(),
+                is_directory: info.is_dir,
+                symlink_target,
+                link_type: if info.is_symlink { "SYMLINK".to_string() } else { "UNLINK".to_string() },
+            };
+            let id = db.insert_entry(&new_entry).map_err(|e| Error::new(ErrorKind::Other, e))?;
+            return Ok(db.get_by_id(id).map_err(|e| Error::new(ErrorKind::Other, e))?);
+        }
+
+        // If excluded by config, delete directly and record in history as EXCLUDED
+        if is_excluded {
+            if let Ok(info) = statx_path(&abs_path) {
+                let symlink_target = if info.is_symlink {
+                    fs::read_link(&abs_path).ok().map(|p| p.to_string_lossy().to_string())
+                } else {
+                    None
+                };
+                let new_entry = NewEntry {
+                    dev_major: info.dev_major,
+                    dev_minor: info.dev_minor,
+                    mnt_id: info.mnt_id,
+                    inode_no: info.ino,
+                    original_path: abs_path.to_string_lossy().to_string(),
+                    filename: filename.clone(),
+                    file_size: if info.is_symlink { 0 } else { info.size },
+                    mode: info.mode,
+                    uid: info.uid,
+                    gid: info.gid,
+                    quick_fingerprint: None,
+                    vault_path: "".to_string(),
+                    deleted_at: Utc::now(),
+                    status: "EXCLUDED".to_string(),
+                    is_directory: info.is_dir,
+                    symlink_target,
+                    link_type: if info.is_symlink { "SYMLINK".to_string() } else { "UNLINK".to_string() },
+                };
+                let _ = db.insert_entry(&new_entry);
             }
 
             if abs_path.is_dir() {

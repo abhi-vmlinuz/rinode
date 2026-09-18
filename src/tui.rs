@@ -498,6 +498,10 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                 let vault_display = if entry.status == "EXCLUDED" {
                     "(none - excluded by rule)"
+                } else if entry.status == "PURGED" && entry.vault_path.is_empty() {
+                    "(none - permanently unlinked)"
+                } else if entry.vault_path.is_empty() {
+                    "(none)"
                 } else {
                     &entry.vault_path
                 };
@@ -859,6 +863,10 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     let vault_display = if entry.status == "EXCLUDED" {
                         "(none - excluded by rule)"
+                    } else if entry.status == "PURGED" && entry.vault_path.is_empty() {
+                        "(none - permanently unlinked)"
+                    } else if entry.vault_path.is_empty() {
+                        "(none)"
                     } else {
                         &entry.vault_path
                     };

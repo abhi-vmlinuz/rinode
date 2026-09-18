@@ -125,6 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let vault = VaultManager::new(config);
             let mut preserved_count = 0;
+            let mut permanent_count = 0;
             let mut excluded_count = 0;
 
             for path in paths {
@@ -136,27 +137,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 if verbose {
-                    println!("rinode: preserving '{}'", path.display());
+                    if permanent {
+                        println!("rinode: removing '{}' permanently", path.display());
+                    } else {
+                        println!("rinode: preserving '{}'", path.display());
+                    }
                 }
 
                 match vault.preserve(&path, &db, permanent) {
                     Ok(Some(entry)) => {
-                        preserved_count += 1;
-                        println!(
-                            "Deleted [{}] '{}' (inode: {}, size: {})",
-                            entry.id,
-                            entry.filename,
-                            entry.inode_no,
-                            format_bytes(entry.file_size)
-                        );
+                        if entry.status == "PURGED" {
+                            permanent_count += 1;
+                            println!(
+                                "Deleted [{}] '{}' permanently (inode: {}, size: {})",
+                                entry.id,
+                                entry.filename,
+                                entry.inode_no,
+                                format_bytes(entry.file_size)
+                            );
+                        } else {
+                            preserved_count += 1;
+                            println!(
+                                "Deleted [{}] '{}' (inode: {}, size: {})",
+                                entry.id,
+                                entry.filename,
+                                entry.inode_no,
+                                format_bytes(entry.file_size)
+                            );
+                        }
                     }
                     Ok(None) => {
                         excluded_count += 1;
-                        if permanent {
-                            println!("Permanently removed excluded path '{}'", path.display());
-                        } else {
-                            println!("Excluded by config: '{}'", path.display());
-                        }
+                        println!("Excluded by config: '{}'", path.display());
                     }
                     Err(e) => {
                         eprintln!("rinode: failed to remove '{}': {}", path.display(), e);
@@ -164,11 +176,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            if preserved_count > 0 || excluded_count > 0 {
-                println!(
-                    "Deleted {} item(s) ({} excluded). Run 'rinode ls' or 'rinode restore <id>' to undo.",
-                    preserved_count, excluded_count
-                );
+            if preserved_count > 0 {
+                if permanent_count > 0 || excluded_count > 0 {
+                    let mut details = Vec::new();
+                    if permanent_count > 0 {
+                        details.push(format!("{} permanently", permanent_count));
+                    }
+                    if excluded_count > 0 {
+                        details.push(format!("{} excluded", excluded_count));
+                    }
+                    println!(
+                        "Deleted {} item(s) ({}). Run 'rinode ls' or 'rinode restore <id>' to undo.",
+                        preserved_count + permanent_count,
+                        details.join(", ")
+                    );
+                } else {
+                    println!(
+                        "Deleted {} item(s). Run 'rinode ls' or 'rinode restore <id>' to undo.",
+                        preserved_count
+                    );
+                }
+            } else if permanent_count > 0 {
+                if excluded_count > 0 {
+                    println!(
+                        "Deleted {} item(s) permanently ({} excluded, tracked in history).",
+                        permanent_count, excluded_count
+                    );
+                } else {
+                    println!(
+                        "Deleted {} item(s) permanently (tracked in history).",
+                        permanent_count
+                    );
+                }
+            } else if excluded_count > 0 {
+                println!("Deleted 0 item(s) ({} excluded).", excluded_count);
             }
         }
 
@@ -308,6 +349,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     let vault_loc = if entry.status == "EXCLUDED" {
                         "(none - excluded by rule)"
+                    } else if entry.status == "PURGED" && entry.vault_path.is_empty() {
+                        "(none - permanently unlinked)"
+                    } else if entry.vault_path.is_empty() {
+                        "(none)"
                     } else {
                         &entry.vault_path
                     };

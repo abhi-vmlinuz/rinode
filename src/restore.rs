@@ -43,6 +43,13 @@ pub fn restore_entry(db: &Db, entry: &EntryRecord, keep_vault: bool, force: bool
         ));
     }
 
+    if entry.status == "PURGED" {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("Cannot restore '{}': file was permanently unlinked and not stored in storage", entry.filename),
+        ));
+    }
+
     let orig_path = PathBuf::from(&entry.original_path);
 
     // 1. Recreate parent directories if missing (mkdir -p)

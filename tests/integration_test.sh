@@ -234,16 +234,21 @@ fi
 echo "[+] POSIX rm flags (-rf, -v) work as expected."
 
 # TEST 7.1: Permanent / no-vault direct unlinking test
-echo -e "\n[TEST 7.1] Testing --no-vault and --permanent flags..."
+echo -e "\n[TEST 7.1] Testing --no-vault, --no-storage, and -p / --permanent flags..."
 echo "permanent junk 1" > perm1.txt
 "$BIN" rm --no-vault perm1.txt
 if [ -f perm1.txt ]; then
     echo "[!] Error: perm1.txt still exists after --no-vault!"
     exit 1
 fi
-# Ensure it was not added to the vault index
+# Ensure it was not added to the active storage index
 if "$BIN" ls | grep -q "perm1.txt"; then
-    echo "[!] Error: perm1.txt was indexed in the vault despite --no-vault!"
+    echo "[!] Error: perm1.txt was indexed in active storage despite --no-vault!"
+    exit 1
+fi
+# Ensure it is recorded in history with PURGED status
+if ! "$BIN" ls -a | grep "perm1.txt" | grep -q "PURGED"; then
+    echo "[!] Error: perm1.txt not found in history with status PURGED!"
     exit 1
 fi
 
@@ -254,7 +259,11 @@ if [ -f perm2.txt ]; then
     exit 1
 fi
 if "$BIN" ls | grep -q "perm2.txt"; then
-    echo "[!] Error: perm2.txt was indexed in the vault despite -p!"
+    echo "[!] Error: perm2.txt was indexed in active storage despite -p!"
+    exit 1
+fi
+if ! "$BIN" ls -a | grep "perm2.txt" | grep -q "PURGED"; then
+    echo "[!] Error: perm2.txt not found in history with status PURGED!"
     exit 1
 fi
 
@@ -268,7 +277,29 @@ if "$BIN" ls | grep -q "perm3.txt"; then
     echo "[!] Error: perm3.txt was indexed in storage despite --no-storage!"
     exit 1
 fi
-echo "[+] Direct unlinking (--no-storage, --no-vault, -p) works without indexing."
+if ! "$BIN" ls -a | grep "perm3.txt" | grep -q "PURGED"; then
+    echo "[!] Error: perm3.txt not found in history with status PURGED!"
+    exit 1
+fi
+
+# Ensure inspecting a permanently removed entry displays PURGED and permanently unlinked
+PERM1_ID=$("$BIN" ls -a | grep "perm1.txt" | awk '{print $2}')
+if ! "$BIN" inspect "$PERM1_ID" | grep -q "PURGED"; then
+    echo "[!] Error: inspect output does not show PURGED status for $PERM1_ID!"
+    exit 1
+fi
+if ! "$BIN" inspect "$PERM1_ID" | grep -q "(none - permanently unlinked)"; then
+    echo "[!] Error: inspect output does not show (none - permanently unlinked) storage location!"
+    exit 1
+fi
+
+# Ensure trying to restore a permanently purged file returns an error
+if "$BIN" restore "$PERM1_ID" 2>/dev/null; then
+    echo "[!] Error: Restoring a permanently purged file should have failed!"
+    exit 1
+fi
+
+echo "[+] Direct unlinking (--no-storage, --no-vault, -p) unlinks from disk and records in history as PURGED."
 
 # TEST 8: Shell init generation test
 echo -e "\n[TEST 8] Shell init generation test (fish, bash, zsh, auto-detect, custom alias)..."

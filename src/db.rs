@@ -280,15 +280,21 @@ impl Db {
     }
 
     pub fn insert_entry(&self, entry: &NewEntry) -> Result<i64> {
+        let purged_at = if entry.status == "PURGED" {
+            Some(entry.deleted_at.to_rfc3339())
+        } else {
+            None
+        };
+
         self.conn.execute(
             "
             INSERT INTO entries (
                 dev_major, dev_minor, mnt_id, inode_no, original_path,
                 filename, file_size, mode, uid, gid, quick_fingerprint,
                 vault_path, deleted_at, status, is_directory,
-                symlink_target, link_type
+                symlink_target, link_type, purged_at
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
             )
             ",
             params![
@@ -309,6 +315,7 @@ impl Db {
                 entry.is_directory,
                 entry.symlink_target,
                 entry.link_type,
+                purged_at,
             ],
         )?;
 
