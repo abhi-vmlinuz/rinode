@@ -85,21 +85,38 @@ rinode
   <img src="assets/dashboard.png" alt="rinode Interactive Dashboard" width="100%">
 </p>
 
-- **Left pane**: Table of preserved files (ID, filename, size, deletion time, inode number).
+- **Left pane**: Table of deleted files (`DELETED`, ID, filename, size, deletion time, inode number).
 - **Right pane**:
-  - **Upper section (`ENTRY DETAILS`)**: Inode metadata, permissions, ownership, timestamps, and storage path.
-  - **Lower section (`HISTORY`)**: Audit table of previously restored and purged files, with status and local timestamps.
+  - **Upper section (`DETAILS`)**: Inode metadata, permissions, ownership, deletion timestamp, 64KB content fingerprint, and storage path.
+  - **Lower section (`HISTORY`)**: Audit table of previously restored, purged, and excluded files, with status and local timestamps.
 - **Navigation & focus**:
-  - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Preserved Files and History.
+  - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Deleted Files and History.
   - `j` / `k` navigate rows within the active pane.
 - **Actions**:
-  - Press `Enter` on a preserved file to open the action menu (Restore, Reflink fork, Inspect, Purge, Copy path).
+  - Press `Enter` on a deleted entry to open the action menu (Restore, Restore (keep copy), Metadata, Delete permanently, Copy path).
   - Press `Enter` on a file in history to inspect its metadata.
-  - Quick keys: `r` to restore, `x` to purge, `e` to view active exclusion rules, `q` to exit.
+  - Quick keys: `r` to restore, `x` to delete permanently, `t` to cycle themes, `e` to view active exclusion rules, `q` to exit.
 
 <p align="center">
   <img src="assets/actions_menu.png" alt="rinode Action Submenu and History" width="100%">
 </p>
+
+### Built-in themes
+
+`rinode` provides built-in color schemes matching modern terminal palettes. Press `t` in the dashboard to cycle through themes live, or set `theme` in your configuration file:
+
+| Catppuccin Mocha | Solarized Dark |
+|:---:|:---:|
+| <img src="assets/theme_catppuccin.png" alt="rinode Catppuccin Mocha Theme" width="100%"> | <img src="assets/theme_solarized.png" alt="rinode Solarized Dark Theme" width="100%"> |
+
+Available themes:
+- `default`: Preserves your terminal's transparent background with cyan/green accents.
+- `catppuccin`: Catppuccin Mocha palette with mauve borders and sky-blue highlights.
+- `solarized`: Solarized Dark palette with cyan borders and amber accents.
+- `dracula`: Dracula theme with purple borders and green status indicators.
+- `gruvbox`: Gruvbox Dark theme with bright orange and aqua accents.
+- `tokyo_night`: Tokyo Night storm theme with magenta and cyan accents.
+- `nord`: Nord arctic palette with frost cyan and teal accents.
 
 ### Command-line interface
 
@@ -308,6 +325,9 @@ Configuration files are resolved in this order:
 Default configuration:
 
 ```toml
+# Theme selection (default, catppuccin, solarized, dracula, gruvbox, tokyo_night, nord)
+theme = "default"
+
 [storage]
 retention_days = 14
 
