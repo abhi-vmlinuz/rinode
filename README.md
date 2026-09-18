@@ -82,7 +82,7 @@ rinode
 ```
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="rinode Interactive Dashboard" width="100%">
+  <img src="assets/rinode_dashboard.png" alt="rinode Interactive Dashboard" width="100%">
 </p>
 
 - **Left pane**: Table of deleted files (`DELETED`, ID, filename, size, deletion time, inode number).
@@ -98,7 +98,7 @@ rinode
   - Quick keys: `r` to restore, `x` to delete permanently, `t` to cycle themes, `e` to view active exclusion rules, `q` to exit.
 
 <p align="center">
-  <img src="assets/actions_menu.png" alt="rinode Action Submenu and History" width="100%">
+  <img src="assets/rinode_actions.png" alt="rinode Action Submenu and History" width="100%">
 </p>
 
 ### Built-in themes
