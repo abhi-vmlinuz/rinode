@@ -42,11 +42,16 @@ For an in-depth systems document analyzing the Linux inode lifecycle, extent tre
 
 - **[rinode Architecture & VFS Specification (PDF)](docs/whitepaper.pdf)**
 
-## Installation
+## Prerequisites
 
-Requirements:
-- Linux kernel 5.8 or newer (required for `STATX_MNT_ID`)
-- Rust 1.75+ (for building from source)
+`rinode` relies directly on modern Linux VFS system calls and requires **Linux kernel 5.8 or newer**:
+
+- **`statx(2)` with `STATX_MNT_ID` (Linux 5.8+)**: Required to discover filesystem mount and Btrfs subvolume boundaries without crossing into adjacent mount points. Kernels prior to 5.8 do not support `STATX_MNT_ID`.
+- **`renameat2(2)` with `RENAME_NOREPLACE` (Linux 3.15+)**: Enforces kernel-level atomic moves without overwrite races (eliminating TOCTOU bugs).
+- **`ioctl(2)` with `FICLONE` (Linux 4.5+)**: Enables zero-copy reflink snapshots during restore on Copy-on-Write filesystems (Btrfs, XFS).
+- **Rust 1.75+**: Required only when compiling from source.
+
+## Installation
 
 ### Building from source
 

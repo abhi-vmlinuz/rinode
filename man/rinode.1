@@ -37,6 +37,19 @@ Data blocks are never copied, and exact file attributes, permissions, timestamps
 Restoring even multi-gigabyte files or deeply nested directory trees occurs instantaneously.
 .PP
 If invoked without arguments, \fBrinode\fR launches an interactive split-screen terminal user interface (TUI).
+.SH REQUIREMENTS
+\fBrinode\fR requires \fBLinux kernel 5.8 or newer\fR.
+.PP
+The zero-copy architecture relies directly on modern Linux VFS system calls:
+.TP
+.BR statx (2)
+Requires the \fBSTATX_MNT_ID\fR flag (introduced in Linux 5.8) to discover filesystem mount and Btrfs subvolume boundaries without crossing into adjacent mount points.
+.TP
+.BR renameat2 (2)
+Uses \fBRENAME_NOREPLACE\fR (Linux 3.15+) for kernel-enforced atomic moves without overwrite races.
+.TP
+.BR ioctl_ficlone (2)
+Uses \fBFICLONE\fR (Linux 4.5+) for zero-copy reflink snapshots on Copy-on-Write filesystems (Btrfs, XFS).
 .SH COMMANDS
 .TP
 .B tui

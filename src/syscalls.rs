@@ -54,7 +54,13 @@ pub fn statx_path(path: &Path) -> Result<StatxInfo> {
     };
 
     if res != 0 {
-        return Err(Error::last_os_error());
+        let err = Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ENOSYS) {
+            return Err(Error::other(
+                "statx(2) system call is not supported on this kernel (requires Linux kernel 5.8+)",
+            ));
+        }
+        return Err(err);
     }
 
     let mode = statxbuf.stx_mode as u16;
