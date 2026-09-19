@@ -14,6 +14,10 @@ Zero-copy deleted file tracking and instant restoration for Linux
 
 `rinode` is a Linux utility that preserves deleted files and directories in constant time without copying data blocks, allowing instant restoration.
 
+<p align="center">
+  <img src="assets/rinode_overview.png" alt="rinode TUI showing deleted files and restore history" width="100%">
+</p>
+
 ## Problem
 
 Standard Linux deletion tools have two main drawbacks:
