@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BIN="$HOME/projects/recent-inode/target/release/rinode"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BIN="${BIN:-$REPO_ROOT/target/release/rinode}"
 TEST_ROOT="$HOME/rinode_test_$(date +%s)"
 mkdir -p "$TEST_ROOT"
-cp "$HOME/projects/recent-inode/rinode.toml" "$TEST_ROOT/rinode.toml"
+cp "$REPO_ROOT/rinode.toml" "$TEST_ROOT/rinode.toml"
 cd "$TEST_ROOT"
 
 # Isolate test database, vault, and config completely from host system
