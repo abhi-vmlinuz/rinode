@@ -1,6 +1,6 @@
 use chrono::Utc;
 use std::fs::{self, Permissions};
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, Result};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -190,8 +190,8 @@ impl VaultManager {
                 symlink_target,
                 link_type: if info.is_symlink { "SYMLINK".to_string() } else { "UNLINK".to_string() },
             };
-            let id = db.insert_entry(&new_entry).map_err(|e| Error::new(ErrorKind::Other, e))?;
-            return Ok(db.get_by_id(id).map_err(|e| Error::new(ErrorKind::Other, e))?);
+            let id = db.insert_entry(&new_entry).map_err(Error::other)?;
+            return db.get_by_id(id).map_err(Error::other);
         }
 
         // If excluded by config, delete directly and record in history as EXCLUDED
@@ -260,8 +260,8 @@ impl VaultManager {
 
             // Remove symlink
             fs::remove_file(&abs_path)?;
-            let id = db.insert_entry(&new_entry).map_err(|e| Error::new(ErrorKind::Other, e))?;
-            return Ok(db.get_by_id(id).map_err(|e| Error::new(ErrorKind::Other, e))?);
+            let id = db.insert_entry(&new_entry).map_err(Error::other)?;
+            return db.get_by_id(id).map_err(Error::other);
         }
 
         // Handle Regular Files and Directories
@@ -341,7 +341,7 @@ impl VaultManager {
             link_type,
         };
 
-        let id = db.insert_entry(&new_entry).map_err(|e| Error::new(ErrorKind::Other, e))?;
-        Ok(db.get_by_id(id).map_err(|e| Error::new(ErrorKind::Other, e))?)
+        let id = db.insert_entry(&new_entry).map_err(Error::other)?;
+        db.get_by_id(id).map_err(Error::other)
     }
 }

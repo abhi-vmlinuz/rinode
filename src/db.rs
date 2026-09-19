@@ -331,7 +331,7 @@ impl Db {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map([], Self::row_to_record)?;
 
         let mut entries = Vec::new();
         for r in rows {
@@ -353,7 +353,7 @@ impl Db {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map([], Self::row_to_record)?;
 
         let mut entries = Vec::new();
         for r in rows {
@@ -374,7 +374,7 @@ impl Db {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map([], Self::row_to_record)?;
 
         let mut entries = Vec::new();
         for r in rows {
@@ -387,7 +387,7 @@ impl Db {
         let sql = format!("SELECT {} FROM entries WHERE id = ?1", SELECT_COLS);
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query_map(params![id], |row| Self::row_to_record(row))?;
+        let mut rows = stmt.query_map(params![id], Self::row_to_record)?;
 
         match rows.next() {
             Some(row) => Ok(Some(row?)),
@@ -407,7 +407,7 @@ impl Db {
 
         let search_pattern = format!("%/{}", name);
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![name, search_pattern], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map(params![name, search_pattern], Self::row_to_record)?;
 
         let mut entries = Vec::new();
         for r in rows {
@@ -453,7 +453,7 @@ impl Db {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![cutoff.to_rfc3339()], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map(params![cutoff.to_rfc3339()], Self::row_to_record)?;
 
         let mut entries = Vec::new();
         for r in rows {
@@ -482,7 +482,7 @@ impl Db {
             SELECT_COLS
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
+        let rows = stmt.query_map([], Self::row_to_record)?;
         let mut entries = Vec::new();
         for r in rows {
             entries.push(r?);

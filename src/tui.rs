@@ -972,24 +972,20 @@ fn main_loop<B: ratatui::backend::Backend>(
                                 status_message = None;
                             }
                         }
-                        KeyCode::Char('l') | KeyCode::Right => {
-                            if active_pane == ActivePane::Deleted {
-                                if !history_entries.is_empty() {
-                                    active_pane = ActivePane::History;
-                                    if history_table_state.selected().is_none() {
-                                        history_table_state.select(Some(0));
-                                    }
-                                    status_message = None;
-                                } else {
-                                    status_message = Some("No records in history yet".into());
+                        KeyCode::Char('l') | KeyCode::Right if active_pane == ActivePane::Deleted => {
+                            if !history_entries.is_empty() {
+                                active_pane = ActivePane::History;
+                                if history_table_state.selected().is_none() {
+                                    history_table_state.select(Some(0));
                                 }
+                                status_message = None;
+                            } else {
+                                status_message = Some("No records in history yet".into());
                             }
                         }
-                        KeyCode::Char('h') | KeyCode::Left => {
-                            if active_pane == ActivePane::History {
-                                active_pane = ActivePane::Deleted;
-                                status_message = None;
-                            }
+                        KeyCode::Char('h') | KeyCode::Left if active_pane == ActivePane::History => {
+                            active_pane = ActivePane::Deleted;
+                            status_message = None;
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             match active_pane {
@@ -1126,48 +1122,44 @@ fn main_loop<B: ratatui::backend::Backend>(
                             last_data_version = -1;
                             status_message = Some("Refreshed".into());
                         }
-                        KeyCode::Char('r') => {
+                        KeyCode::Char('r') if active_pane == ActivePane::Deleted => {
                             // Quick restore (applies to Deleted pane)
-                            if active_pane == ActivePane::Deleted {
-                                if let Some(idx) = table_state.selected() {
-                                    if let Some(entry) = entries.get(idx) {
-                                        match restore_entry(db, entry, false, false) {
-                                            Ok(_) => {
-                                                status_message = Some(format!("Restored '{}'", entry.filename));
-                                                entries = db.list_active(None)?;
-                                                history_entries = db.list_history(None)?;
-                                                last_data_version = db.get_data_version().unwrap_or(last_data_version);
-                                                if history_table_state.selected().is_none() && !history_entries.is_empty() {
-                                                    history_table_state.select(Some(0));
-                                                }
-                                                if idx >= entries.len() && !entries.is_empty() {
-                                                    table_state.select(Some(entries.len() - 1));
-                                                }
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    match restore_entry(db, entry, false, false) {
+                                        Ok(_) => {
+                                            status_message = Some(format!("Restored '{}'", entry.filename));
+                                            entries = db.list_active(None)?;
+                                            history_entries = db.list_history(None)?;
+                                            last_data_version = db.get_data_version().unwrap_or(last_data_version);
+                                            if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                                                history_table_state.select(Some(0));
                                             }
-                                            Err(e) => {
-                                                status_message = Some(format!("Restore error: {}", e));
+                                            if idx >= entries.len() && !entries.is_empty() {
+                                                table_state.select(Some(entries.len() - 1));
                                             }
+                                        }
+                                        Err(e) => {
+                                            status_message = Some(format!("Restore error: {}", e));
                                         }
                                     }
                                 }
                             }
                         }
-                        KeyCode::Char('x') => {
+                        KeyCode::Char('x') if active_pane == ActivePane::Deleted => {
                             // Quick delete (applies to Deleted pane)
-                            if active_pane == ActivePane::Deleted {
-                                if let Some(idx) = table_state.selected() {
-                                    if let Some(entry) = entries.get(idx) {
-                                        db.purge_entry(entry).ok();
-                                        status_message = Some(format!("Deleted '{}' permanently", entry.filename));
-                                        entries = db.list_active(None)?;
-                                        history_entries = db.list_history(None)?;
-                                        last_data_version = db.get_data_version().unwrap_or(last_data_version);
-                                        if history_table_state.selected().is_none() && !history_entries.is_empty() {
-                                            history_table_state.select(Some(0));
-                                        }
-                                        if idx >= entries.len() && !entries.is_empty() {
-                                            table_state.select(Some(entries.len() - 1));
-                                        }
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    db.purge_entry(entry).ok();
+                                    status_message = Some(format!("Deleted '{}' permanently", entry.filename));
+                                    entries = db.list_active(None)?;
+                                    history_entries = db.list_history(None)?;
+                                    last_data_version = db.get_data_version().unwrap_or(last_data_version);
+                                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                                        history_table_state.select(Some(0));
+                                    }
+                                    if idx >= entries.len() && !entries.is_empty() {
+                                        table_state.select(Some(entries.len() - 1));
                                     }
                                 }
                             }
@@ -1219,6 +1211,7 @@ fn main_loop<B: ratatui::backend::Backend>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_action(
     action_idx: usize,
     entries: &mut Vec<EntryRecord>,

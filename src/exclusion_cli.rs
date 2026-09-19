@@ -78,7 +78,7 @@ fn test_sample_path(config: &Config, sample: &str) {
     let filename = p
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "".to_string());
+        .unwrap_or_default();
 
     println!("Testing path: '{}'", sample);
     match config.test_path(p, &filename) {

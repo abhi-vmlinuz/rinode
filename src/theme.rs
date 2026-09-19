@@ -30,6 +30,7 @@ pub struct Theme {
 }
 
 impl Theme {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         id: &'static str,
         name: &'static str,
@@ -257,6 +258,62 @@ pub const THEMES: &[Theme] = &[
         Color::Rgb(255, 238, 0),   // Neon Yellow
         Color::Rgb(255, 140, 0),   // Neon Orange
     ),
+    Theme::new(
+        "everforest",
+        "Everforest",
+        Some(Color::Rgb(43, 51, 57)),
+        Color::Rgb(167, 192, 128), // Green
+        Color::Rgb(127, 187, 179), // Aqua
+        Color::Rgb(211, 198, 170), // Fg
+        Color::Rgb(79, 88, 94),    // Bg4
+        Color::Rgb(133, 146, 137), // Grey
+        Color::Rgb(167, 192, 128), // Green
+        Color::Rgb(230, 126, 128), // Red
+        Color::Rgb(219, 188, 127), // Yellow
+        Color::Rgb(224, 143, 114), // Orange
+    ),
+    Theme::new(
+        "ayu",
+        "Ayu Dark",
+        Some(Color::Rgb(15, 20, 25)),
+        Color::Rgb(255, 180, 84), // Gold
+        Color::Rgb(57, 186, 230),  // Cyan
+        Color::Rgb(203, 204, 198), // Fg
+        Color::Rgb(36, 42, 54),    // Bg
+        Color::Rgb(92, 103, 115),  // Comment
+        Color::Rgb(170, 217, 76),  // Green
+        Color::Rgb(240, 113, 120), // Red
+        Color::Rgb(255, 180, 84),  // Yellow
+        Color::Rgb(255, 143, 64),  // Orange
+    ),
+    Theme::new(
+        "synthwave",
+        "Synthwave '84",
+        Some(Color::Rgb(38, 25, 60)),
+        Color::Rgb(254, 68, 153),  // Neon Pink
+        Color::Rgb(249, 126, 240), // Neon Violet
+        Color::Rgb(240, 238, 255), // Bright Text
+        Color::Rgb(63, 40, 97),    // Muted
+        Color::Rgb(110, 80, 150),  // Comment
+        Color::Rgb(114, 241, 184), // Neon Teal
+        Color::Rgb(254, 68, 68),   // Red
+        Color::Rgb(254, 235, 100), // Yellow
+        Color::Rgb(249, 126, 60),  // Orange
+    ),
+    Theme::new(
+        "matrix",
+        "Matrix",
+        Some(Color::Rgb(10, 15, 10)),
+        Color::Rgb(0, 255, 65),    // Phosphor Green
+        Color::Rgb(0, 204, 51),    // Medium Green
+        Color::Rgb(180, 255, 180), // Text
+        Color::Rgb(20, 35, 20),    // Muted
+        Color::Rgb(40, 80, 40),    // Comment
+        Color::Rgb(0, 255, 65),    // Green
+        Color::Rgb(255, 65, 65),   // Red
+        Color::Rgb(200, 255, 0),   // Yellow-Green
+        Color::Rgb(255, 175, 0),   // Amber
+    ),
 ];
 
 #[allow(dead_code)]
@@ -286,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_all_themes_lookup() {
-        assert_eq!(THEMES.len(), 12);
+        assert_eq!(THEMES.len(), 16);
         for theme in THEMES {
             assert_eq!(get_theme(theme.id).id, theme.id);
             assert_eq!(get_theme(theme.name).id, theme.id);

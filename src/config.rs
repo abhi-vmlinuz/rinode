@@ -278,7 +278,7 @@ impl Config {
         // 1. Check system prefix paths
         for sys_path in &self.exclusions.system_paths {
             if path_str.starts_with(sys_path)
-                || abs_path_str.as_ref().map_or(false, |p| p.starts_with(sys_path))
+                || abs_path_str.as_ref().is_some_and(|p| p.starts_with(sys_path))
             {
                 return Some(format!("system_paths prefix '{}'", sys_path));
             }
@@ -287,7 +287,7 @@ impl Config {
         // 2. Check path regex
         for (i, re) in self.compiled_path_regex.iter().enumerate() {
             if re.is_match(&path_str)
-                || abs_path_str.as_ref().map_or(false, |p| re.is_match(p))
+                || abs_path_str.as_ref().is_some_and(|p| re.is_match(p))
             {
                 let raw_rule = self.exclusions.path_regex.get(i).map(|s| s.as_str()).unwrap_or("unknown");
                 return Some(format!("path_regex rule '{}'", raw_rule));

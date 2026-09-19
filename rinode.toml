@@ -1,9 +1,8 @@
-theme = "solarized"
+theme = "cyberpunk"
 
 [storage]
 retention_days = 30
-# Max bytes kept in PRESERVED status (oldest-first auto-prune on `rm`). 0 = unlimited.
-max_storage_bytes = 21474836480 # 20 GiB
+max_storage_bytes = 21474836480
 
 [exclusions]
 system_paths = [
@@ -13,20 +12,18 @@ system_paths = [
     "/run",
     "/tmp",
 ]
-
 path_regex = [
     ".*/node_modules/.*",
-    ".*/\\.git/.*",
+    '.*/\.git/.*',
     ".*/target/(debug|release)/.*",
     ".*/build/.*",
-    ".*/\\.cache/.*",
+    '.*/\.cache/.*',
     ".*/__pycache__/.*",
 ]
-
 filename_regex = [
-    "^\\..*\\.swp$",
+    '^\..*\.swp$',
     ".*~$",
-    ".*\\.tmp$",
-    "^core(\\.\\d+)?$",
-    "^\\.~lock\\..*#$",
+    '.*\.tmp$',
+    '^core(\.\d+)?$',
+    '^\.~lock\..*#$',
 ]

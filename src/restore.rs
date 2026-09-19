@@ -15,12 +15,12 @@ pub fn restore_by_id_or_name(
 ) -> Result<EntryRecord> {
     let entry = if let Ok(id) = identifier.parse::<i64>() {
         db.get_by_id(id)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?
+            .map_err(Error::other)?
             .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("Entry with ID {} not found", id)))?
     } else {
         let matches = db
             .find_by_filename(identifier)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            .map_err(Error::other)?;
 
         if matches.is_empty() {
             return Err(Error::new(
@@ -134,7 +134,7 @@ pub fn restore_entry(db: &Db, entry: &EntryRecord, keep_vault: bool, force: bool
             Err(e) => return Err(e),
         }
         db.mark_restored(entry.id)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            .map_err(Error::other)?;
         return Ok(());
     }
 
@@ -178,7 +178,7 @@ pub fn restore_entry(db: &Db, entry: &EntryRecord, keep_vault: bool, force: bool
 
     // 5. Update database status to RESTORED
     db.mark_restored(entry.id)
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        .map_err(Error::other)?;
 
     Ok(())
 }
