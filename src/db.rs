@@ -396,13 +396,16 @@ impl Db {
     }
 
     pub fn find_by_filename(&self, name: &str) -> Result<Vec<EntryRecord>> {
+        // Finding 6: strict match only. `%name` falsely matched `sample_doc.txt`
+        // when searching `doc.txt`. Require exact filename, exact path, or
+        // path-suffix with directory separator (`%/doc.txt`).
         let sql = format!(
-            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path LIKE ?2) \
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path = ?1 OR original_path LIKE ?2) \
              ORDER BY deleted_at DESC",
             SELECT_COLS
         );
 
-        let search_pattern = format!("%{}", name);
+        let search_pattern = format!("%/{}", name);
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![name, search_pattern], |row| Self::row_to_record(row))?;
 
@@ -452,6 +455,34 @@ impl Db {
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![cutoff.to_rfc3339()], |row| Self::row_to_record(row))?;
 
+        let mut entries = Vec::new();
+        for r in rows {
+            entries.push(r?);
+        }
+        Ok(entries)
+    }
+
+    /// Total bytes currently held in PRESERVED status (for quota enforcement).
+    pub fn total_preserved_bytes(&self) -> Result<u64> {
+        let v: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(file_size), 0) FROM entries WHERE status = 'PRESERVED'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(Some(0));
+        Ok(v.unwrap_or(0).max(0) as u64)
+    }
+
+    /// Oldest PRESERVED entries first (for oldest-first quota pruning).
+    pub fn list_preserved_oldest(&self) -> Result<Vec<EntryRecord>> {
+        let sql = format!(
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' ORDER BY deleted_at ASC, id ASC",
+            SELECT_COLS
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| Self::row_to_record(row))?;
         let mut entries = Vec::new();
         for r in rows {
             entries.push(r?);
