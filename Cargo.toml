@@ -1,6 +1,6 @@
 [package]
 name = "rinode"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Zero-copy deleted file tracking and instant restoration for Linux"
 
