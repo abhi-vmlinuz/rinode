@@ -101,6 +101,42 @@ pub fn format_display_name(filename: &str, max_len: usize) -> String {
     format!("{}...", prefix)
 }
 
+fn enforce_retention(db: &Db, config: &config::Config, protect_ids: &[i64]) {
+    // Finding 5: opportunistic auto-retention. `rm` triggers a <1ms indexed
+    // expired-query plus quota check, so storage never grows unbounded when
+    // users forget manual `purge`. Retention 14d default; quota 20GiB default.
+    if let Ok(expired) = db.get_expired(config.storage.retention_days) {
+        for e in expired {
+            let _ = db.purge_entry(&e);
+        }
+    }
+    let max = config.storage.max_storage_bytes;
+    if max == 0 {
+        return; // unlimited
+    }
+    let Ok(total) = db.total_preserved_bytes() else {
+        return;
+    };
+    if total <= max {
+        return;
+    }
+    let Ok(mut oldest) = db.list_preserved_oldest() else {
+        return;
+    };
+    // Oldest-first, but never auto-purge files created in this same invocation.
+    let mut running = total;
+    for e in oldest.drain(..) {
+        if running <= max {
+            break;
+        }
+        if protect_ids.contains(&e.id) {
+            continue;
+        }
+        running = running.saturating_sub(e.file_size);
+        let _ = db.purge_entry(&e);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let mut config = Config::load();
@@ -123,10 +159,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             interactive: _,
             dir: _,
         } => {
-            let vault = VaultManager::new(config);
+            let vault = VaultManager::new(config.clone());
             let mut preserved_count = 0;
             let mut permanent_count = 0;
             let mut excluded_count = 0;
+            let mut new_ids: Vec<i64> = Vec::new();
 
             for path in paths {
                 if !path.exists() && !path.is_symlink() {
@@ -157,6 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         } else {
                             preserved_count += 1;
+                            new_ids.push(entry.id);
                             println!(
                                 "Deleted [{}] '{}' (inode: {}, size: {})",
                                 entry.id,
@@ -211,6 +249,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if excluded_count > 0 {
                 println!("Deleted 0 item(s) ({} excluded).", excluded_count);
             }
+            // Opportunistic auto-retention + quota (never purges this run's files)
+            enforce_retention(&db, &config, &new_ids);
         }
 
         Commands::Ls { limit, all, ids } => {
