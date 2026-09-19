@@ -236,7 +236,7 @@ rinode purge 1
 rinode purge 1 3 5
 rinode purge notes.txt
 
-# Purge entries older than the configured retention period (default: 14 days)
+# Purge entries older than the configured retention period (default: 30 days)
 rinode purge
 
 # Purge entries older than N days
@@ -333,7 +333,7 @@ Default configuration:
 theme = "default"
 
 [storage]
-retention_days = 14
+retention_days = 30
 # Max bytes kept in PRESERVED status, oldest pruned first on rm. 0 means unlimited.
 max_storage_bytes = 21474836480 # 20 GiB
 

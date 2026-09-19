@@ -14,7 +14,7 @@ pub struct StorageConfig {
 }
 
 fn default_retention_days() -> u32 {
-    14
+    30
 }
 
 fn default_max_storage_bytes() -> u64 {

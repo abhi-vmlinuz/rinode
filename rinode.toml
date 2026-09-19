@@ -1,5 +1,7 @@
+theme = "solarized"
+
 [storage]
-retention_days = 14
+retention_days = 30
 # Max bytes kept in PRESERVED status (oldest-first auto-prune on `rm`). 0 = unlimited.
 max_storage_bytes = 21474836480 # 20 GiB
 

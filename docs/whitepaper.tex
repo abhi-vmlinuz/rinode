@@ -384,7 +384,7 @@ To prevent unbounded storage consumption, \texttt{rinode} incorporates an automa
 \begin{lstlisting}[language=SQL]
 SELECT id, vault_path, is_directory FROM entries 
 WHERE status = 'PRESERVED' 
-  AND deleted_at < datetime('now', '-14 days');
+  AND deleted_at < datetime('now', '-30 days');
 \end{lstlisting}
 For each identified candidate, \texttt{rinode} invokes \texttt{unlink(vault\_path)} for regular files or \texttt{remove\_dir\_all} for directory hierarchies, followed by setting \texttt{status = 'PURGED'}. This releases underlying filesystem extent trees only after the configured retention window expires.
 

@@ -119,7 +119,7 @@ Overwrite existing files or directories if the destination path already exists.
 One or more entry IDs or filenames to selectively purge from storage. Mutually exclusive with \fB\-\-days\fR and \fB\-\-all\fR.
 .TP
 .BR \-d ", " \-\-days " \fIDAYS\fR"
-Purge entries deleted more than \fIDAYS\fR ago (default: configured retention days, typically 14).
+Purge entries deleted more than \fIDAYS\fR ago (default: configured retention days, typically 30).
 .TP
 .B \-\-all
 Force permanent deletion of all preserved files in storage.
@@ -157,7 +157,8 @@ Example configuration:
 .RS
 .nf
 [storage]
-retention_days = 14
+retention_days = 30
+max_storage_bytes = 21474836480
 max_storage_bytes = 21474836480
 
 [exclusions]
