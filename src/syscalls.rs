@@ -14,6 +14,10 @@ const STATX_MNT_ID: libc::c_uint = 0x00001000;
 // ioctl FICLONE for CoW reflinks on btrfs/XFS
 const FICLONE: libc::c_ulong = 0x40049409;
 
+/// Kernel-level atomic "fail if destination exists" flag for renameat2(2).
+/// Using this eliminates the TOCTOU race between `exists()` checks and rename.
+pub const RENAME_NOREPLACE: libc::c_uint = 0x1;
+
 #[derive(Debug, Clone)]
 pub struct StatxInfo {
     pub dev_major: u32,
