@@ -89,13 +89,56 @@ impl VaultManager {
             .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
             .collect();
         let now_nanos = Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let mut rand_bytes = [0u8; 4];
-        let rand_val = if unsafe { libc::getrandom(rand_bytes.as_mut_ptr() as *mut libc::c_void, 4, libc::GRND_NONBLOCK) } == 4 {
-            u32::from_ne_bytes(rand_bytes)
+        let mut rand_bytes = [0u8; 8];
+        let rand_val = if unsafe { libc::getrandom(rand_bytes.as_mut_ptr() as *mut libc::c_void, 8, libc::GRND_NONBLOCK) } == 8 {
+            u64::from_ne_bytes(rand_bytes)
         } else {
-            std::process::id() ^ (now_nanos as u32)
+            // Fallback: mix pid, nanos, and address entropy (still 64-bit space)
+            let pid = std::process::id() as u64;
+            (pid.wrapping_mul(0x9e3779b97f4a7c15))
+                ^ (now_nanos as u64).wrapping_mul(0xbf58476d1ce4e5b9)
         };
-        format!("{}__{}_{}_{}_{:06x}", sanitized, inode, dev, now_nanos, rand_val & 0xffffff)
+        format!("{}__{}_{}_{}_{:016x}", sanitized, inode, dev, now_nanos, rand_val)
+    }
+
+    /// Durable cross-device file copy: copy -> fsync -> caller renames atomically.
+    /// Writes to `tmp_dest` only; never leaves a half-written `vault_dest` behind.
+    fn copy_file_durable(src: &Path, tmp_dest: &Path, mode: u32) -> Result<()> {
+        fs::copy(src, tmp_dest)?;
+        let f = fs::File::open(tmp_dest)?;
+        // Preserve original permission bits on the copy
+        let _ = fs::set_permissions(tmp_dest, Permissions::from_mode(mode & 0o7777));
+        use std::os::unix::io::AsRawFd;
+        let fd = f.as_raw_fd();
+        let rc = unsafe { libc::fsync(fd) };
+        if rc != 0 {
+            let _ = fs::remove_file(tmp_dest);
+            return Err(Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Recursive directory copy for EXDEV fallback (src dir -> tmp dir).
+    fn copy_dir_all(src: &Path, tmp_dest: &Path) -> Result<()> {
+        fs::create_dir_all(tmp_dest)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let dst = tmp_dest.join(entry.file_name());
+            let ft = entry.file_type()?;
+            if ft.is_dir() {
+                Self::copy_dir_all_static(&entry.path(), &dst)?;
+            } else if ft.is_symlink() {
+                let target = fs::read_link(entry.path())?;
+                std::os::unix::fs::symlink(target, &dst)?;
+            } else {
+                fs::copy(entry.path(), &dst)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn copy_dir_all_static(src: &Path, tmp_dest: &Path) -> Result<()> {
+        Self::copy_dir_all(src, tmp_dest)
     }
 
     /// Preserve a file or directory into the vault
@@ -237,15 +280,42 @@ impl VaultManager {
         let link_type = match renameat2_path(&abs_path, &vault_dest, 0) {
             Ok(_) => "RENAME_MOVE".to_string(),
             Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
-                // Cross-device fallback
-                if info.is_dir {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        "Cannot move directory across mount boundaries",
-                    ));
+                // Cross-device fallback (finding 3): never leave half-written
+                // storage behind. Copy to tmp -> fsync -> atomic rename -> unlink src.
+                let tmp_dest = vault_dir.join(format!(
+                    ".tmp.{}.{}",
+                    vault_filename,
+                    std::process::id()
+                ));
+                let copy_res = if info.is_dir {
+                    Self::copy_dir_all(&abs_path, &tmp_dest)
+                } else {
+                    Self::copy_file_durable(&abs_path, &tmp_dest, info.mode as u32)
+                };
+                if let Err(ce) = copy_res {
+                    let _ = if tmp_dest.is_dir() {
+                        fs::remove_dir_all(&tmp_dest)
+                    } else {
+                        fs::remove_file(&tmp_dest)
+                    };
+                    return Err(ce);
                 }
-                fs::copy(&abs_path, &vault_dest)?;
-                fs::remove_file(&abs_path)?;
+                // Atomically publish temp -> final destination
+                if let Err(re) = fs::rename(&tmp_dest, &vault_dest) {
+                    let _ = if tmp_dest.is_dir() {
+                        fs::remove_dir_all(&tmp_dest)
+                    } else {
+                        fs::remove_file(&tmp_dest)
+                    };
+                    return Err(re);
+                }
+                // Only unlink source after durable copy is on disk.
+                // If unlink fails, vault copy is complete; surface error as-is.
+                if info.is_dir {
+                    fs::remove_dir_all(&abs_path)?;
+                } else {
+                    fs::remove_file(&abs_path)?;
+                }
                 "COPY".to_string()
             }
             Err(e) => return Err(e),
