@@ -2,7 +2,7 @@
 name = "rinode"
 version = "0.1.1"
 edition = "2021"
-description = "Zero-copy deleted file tracking and instant restoration for Linux"
+description = "A safe alternative to rm with instant restore for Linux"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
