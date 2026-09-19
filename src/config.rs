@@ -7,10 +7,18 @@ use std::path::{Path, PathBuf};
 pub struct StorageConfig {
     #[serde(default = "default_retention_days")]
     pub retention_days: u32,
+    /// Maximum total bytes retained in PRESERVED status. Oldest entries are
+    /// pruned first when exceeded. Default 20 GiB. Set to 0 for unlimited.
+    #[serde(default = "default_max_storage_bytes")]
+    pub max_storage_bytes: u64,
 }
 
 fn default_retention_days() -> u32 {
     14
+}
+
+fn default_max_storage_bytes() -> u64 {
+    20 * 1024 * 1024 * 1024 // 20 GiB
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +102,7 @@ impl Default for Config {
     fn default() -> Self {
         let storage = StorageConfig {
             retention_days: default_retention_days(),
+            max_storage_bytes: default_max_storage_bytes(),
         };
         let exclusions = ExclusionsConfig {
             system_paths: default_system_paths(),
