@@ -56,10 +56,37 @@ make
 
 ### Installation
 
-Installs the binary to `/usr/local/bin`, man page to `/usr/local/share/man/man1`, and shell completions for Fish, Bash, and Zsh:
+System-wide install. Puts the binary in `/usr/local/bin` (already on
+PATH on most distributions), the man page in `/usr/local/share/man/man1`,
+and shell completions for Fish, Bash, and Zsh:
 
 ```bash
 sudo make install
+```
+
+Single-user install without sudo. Puts the binary in `~/.local/bin`:
+
+```bash
+make install-user
+```
+
+This requires `~/.local/bin` on your PATH (Debian-based shells add it
+automatically at next login):
+
+```bash
+# Bash (~/.bashrc)
+export PATH="$HOME/.local/bin:$PATH"
+
+# Fish (~/.config/fish/config.fish)
+set -gx PATH "$HOME/.local/bin" $PATH
+```
+
+If both locations contain a copy, the one earlier on PATH wins
+(`~/.local/bin` usually comes first). `sudo make install` warns when a
+shadowing copy exists. To keep only the system installation:
+
+```bash
+rm -i ~/.local/bin/rinode
 ```
 
 To uninstall (removes binaries, completions, configurations, databases, and storage):

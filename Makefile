@@ -18,6 +18,20 @@ build:
 target/release/rinode:
 	$(CARGO) build --release
 
+install-user: target/release/rinode
+	install -d $(HOME)/.local/bin
+	install -m 755 target/release/rinode $(HOME)/.local/bin/rinode
+	@echo ""
+	@echo "rinode user installation complete ($(HOME)/.local/bin/rinode)."
+	@echo "Make sure ~/.local/bin is on your PATH, then restart your shell:"
+	@echo ""
+	@echo "  Bash (~/.bashrc):"
+	@echo "    export PATH=\"\$$HOME/.local/bin:\$$PATH\""
+	@echo ""
+	@echo "  Fish (~/.config/fish/config.fish):"
+	@echo "    set -gx PATH \"\$$HOME/.local/bin\" \$$PATH"
+	@echo ""
+
 install: target/release/rinode
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 target/release/rinode $(DESTDIR)$(BINDIR)/rinode
@@ -54,6 +68,14 @@ install: target/release/rinode
 	@echo "To also alias 'rm' to 'rinode rm', add --alias-rm to the command:"
 	@echo "  rinode init fish --alias-rm | source"
 	@echo "------------------------------------------------------------"
+	@echo ""
+	@INSTALLED="$(DESTDIR)$(BINDIR)/rinode"; ACTIVE="$$(command -v rinode || true)"; \
+	if [ -n "$$ACTIVE" ] && [ "$$ACTIVE" != "$$INSTALLED" ]; then \
+		echo "WARNING: installed to '$$INSTALLED', but '$$ACTIVE' wins on your PATH."; \
+		echo "Remove the stale copy if you only want the system installation:"; \
+		echo "  rm -i '$$ACTIVE'"; \
+		echo ""; \
+	fi
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/rinode
