@@ -65,6 +65,8 @@ Display comprehensive audit metadata for an entry: inode number, filesystem devi
 .TP
 .B purge
 Permanently destroy expired files in storage to reclaim disk space.
+Every \fBrinode rm\fR also auto-purges entries older than retention days
+and prunes oldest-first when total size exceeds max storage bytes.
 .TP
 .B init \fISHELL\fR
 Generate shell integration code for \fBfish\fR, \fBbash\fR, or \fBzsh\fR.
@@ -106,6 +108,7 @@ Display all historical entries, including those already restored or purged.
 .BR \-k ", " \-\-keep\-copy ", " \-\-keep\-vault
 Snapshot Fork mode. On filesystems supporting copy-on-write (btrfs, XFS), issues an \fBioctl(FICLONE)\fR reflink
 to yield an independent copy with zero data duplication. On ext4, creates a kernel-level copy.
+The restored copy keeps the original permission bits and owner, then syncs to disk.
 The file remains preserved in storage.
 .TP
 .BR \-f ", " \-\-force
@@ -155,6 +158,7 @@ Example configuration:
 .nf
 [storage]
 retention_days = 14
+max_storage_bytes = 21474836480
 
 [exclusions]
 system_paths = [

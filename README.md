@@ -168,6 +168,7 @@ rinode restore report.pdf
 rinode restore --force report.pdf
 
 # Restore a copy while retaining the snapshot in storage
+# Restored copy keeps the original permission bits and owner, then syncs to disk
 rinode restore --keep-copy 1
 # Note: --keep-vault is supported as an alias
 ```
@@ -193,7 +194,7 @@ Inode Metadata for Entry #1
   Status:            DELETED
   Deleted At:        2026-09-10T17:55:20.171592361+00:00
   Fast Fingerprint:  dc1025ce6c498bd0
-  Storage Location:  /home/user/.rinode-storage/report.pdf__1982182_0_1789062920171503320_cac889
+  Storage Location:  /home/user/.rinode-storage/report.pdf__1982182_0_1789062920171503320_cac8891a2b3c4d5e
 ```
 
 #### Managing exclusions
@@ -225,7 +226,9 @@ rinode exclude --remove "*.log"
 
 #### Cleaning up (Purging)
 
-Permanently unlinks files from storage and reclaims disk space:
+Permanently unlinks files from storage and reclaims disk space.
+Every `rinode rm` also auto-purges entries older than `retention_days`
+and prunes oldest-first when total size exceeds `max_storage_bytes`:
 
 ```bash
 # Purge specific files by ID or filename
@@ -331,6 +334,8 @@ theme = "default"
 
 [storage]
 retention_days = 14
+# Max bytes kept in PRESERVED status, oldest pruned first on rm. 0 means unlimited.
+max_storage_bytes = 21474836480 # 20 GiB
 
 [exclusions]
 system_paths = [
