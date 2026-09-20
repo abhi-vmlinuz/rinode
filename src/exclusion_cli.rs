@@ -55,6 +55,7 @@ fn add_single_pattern(config: &mut Config, input: &str) {
         }
         Err(e) => {
             eprintln!("[!] Failed to add exclusion rule: {}", e);
+            std::process::exit(1);
         }
     }
 }
@@ -69,6 +70,7 @@ fn remove_exclusion_rule(config: &mut Config, target: &str) {
         }
         Err(e) => {
             eprintln!("[!] Failed to remove rule: {}", e);
+            std::process::exit(1);
         }
     }
 }
