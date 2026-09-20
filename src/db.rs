@@ -29,6 +29,20 @@ pub struct NewEntry {
 }
 
 #[derive(Debug, Clone)]
+pub struct SafetyAuditRecord {
+    pub timestamp: String,
+    pub uid: u32,
+    pub euid: u32,
+    pub pid: u32,
+    pub ppid: u32,
+    pub cwd: String,
+    pub canonical_path: String,
+    pub tier: String,
+    pub flags: String,
+    pub result: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct EntryRecord {
     pub id: i64,
     pub dev_major: u32,
@@ -196,10 +210,25 @@ impl Db {
                 purged_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS safety_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                uid INTEGER NOT NULL,
+                euid INTEGER NOT NULL,
+                pid INTEGER NOT NULL,
+                ppid INTEGER NOT NULL,
+                cwd TEXT NOT NULL,
+                canonical_path TEXT NOT NULL,
+                tier TEXT NOT NULL,
+                flags TEXT NOT NULL,
+                result TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_status ON entries(status);
             CREATE INDEX IF NOT EXISTS idx_dev_inode ON entries(dev_major, dev_minor, inode_no);
             CREATE INDEX IF NOT EXISTS idx_filename ON entries(filename);
             CREATE INDEX IF NOT EXISTS idx_deleted_at ON entries(deleted_at);
+            CREATE INDEX IF NOT EXISTS idx_safety_ts ON safety_overrides(timestamp);
             ",
         )?;
 
@@ -493,6 +522,26 @@ impl Db {
     pub fn get_data_version(&self) -> Result<i64> {
         self.conn
             .query_row("PRAGMA data_version", [], |row| row.get(0))
+    }
+
+    pub fn record_safety_override(&self, record: &SafetyAuditRecord) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO safety_overrides (timestamp, uid, euid, pid, ppid, cwd, canonical_path, tier, flags, result) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                record.timestamp,
+                record.uid,
+                record.euid,
+                record.pid,
+                record.ppid,
+                record.cwd,
+                record.canonical_path,
+                record.tier,
+                record.flags,
+                record.result,
+            ],
+        )?;
+        Ok(())
     }
 
     fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<EntryRecord> {

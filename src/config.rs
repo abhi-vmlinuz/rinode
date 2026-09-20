@@ -32,13 +32,7 @@ pub struct ExclusionsConfig {
 }
 
 fn default_system_paths() -> Vec<String> {
-    vec![
-        "/proc".into(),
-        "/sys".into(),
-        "/dev".into(),
-        "/run".into(),
-        "/tmp".into(),
-    ]
+    Vec::new()
 }
 
 fn default_path_regex() -> Vec<String> {
@@ -63,11 +57,41 @@ fn default_filename_regex() -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafetyConfig {
+    #[serde(default = "default_preserve_root")]
+    pub preserve_root: bool,
+    #[serde(default = "default_bulk_count")]
+    pub bulk_count: usize,
+    #[serde(default)]
+    pub extra_protected: Vec<String>,
+}
+
+fn default_preserve_root() -> bool {
+    true
+}
+
+fn default_bulk_count() -> usize {
+    10
+}
+
+impl Default for SafetyConfig {
+    fn default() -> Self {
+        SafetyConfig {
+            preserve_root: default_preserve_root(),
+            bulk_count: default_bulk_count(),
+            extra_protected: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigRaw {
     #[serde(default)]
     pub storage: Option<StorageConfig>,
     #[serde(default)]
     pub exclusions: Option<ExclusionsConfig>,
+    #[serde(default)]
+    pub safety: Option<SafetyConfig>,
     #[serde(default)]
     pub theme: Option<String>,
 }
@@ -83,6 +107,7 @@ pub enum ExclusionKind {
 pub struct Config {
     pub storage: StorageConfig,
     pub exclusions: ExclusionsConfig,
+    pub safety: SafetyConfig,
     pub theme: Option<String>,
     compiled_path_regex: Vec<Regex>,
     compiled_filename_regex: Vec<Regex>,
@@ -124,6 +149,7 @@ impl Default for Config {
         Config {
             storage,
             exclusions,
+            safety: SafetyConfig::default(),
             theme: Some("default".into()),
             compiled_path_regex,
             compiled_filename_regex,
@@ -180,6 +206,9 @@ impl Config {
         let mut cfg = Config::default();
         if let Some(s) = raw.storage {
             cfg.storage = s;
+        }
+        if let Some(s) = raw.safety {
+            cfg.safety = s;
         }
         if let Some(t) = raw.theme {
             cfg.theme = Some(t);
@@ -325,12 +354,65 @@ impl Config {
     pub fn add_rule(&mut self, kind: ExclusionKind, value: String) -> Result<PathBuf, String> {
         match kind {
             ExclusionKind::SystemPath => {
+                let trimmed = value.trim_end_matches('/');
+                let check_path = if trimmed.is_empty() { "/" } else { trimmed };
+
+                if check_path == "/" || check_path == "/tmp" || check_path == "/var/tmp" {
+                    return Err(format!(
+                        "Cannot exclude system path '{}': protected by safety policy",
+                        value
+                    ));
+                }
+
+                for &t0 in crate::safety::COMPILED_T0_PATHS {
+                    if check_path == t0
+                        || t0.starts_with(&format!("{}/", check_path))
+                        || check_path.starts_with(&format!("{}/", t0))
+                    {
+                        return Err(format!(
+                            "Cannot exclude system path '{}': protected by safety policy (T0)",
+                            value
+                        ));
+                    }
+                }
+
+                for &t1 in crate::safety::COMPILED_T1_PATHS {
+                    if check_path == t1
+                        || t1.starts_with(&format!("{}/", check_path))
+                        || check_path.starts_with(&format!("{}/", t1))
+                    {
+                        return Err(format!(
+                            "Cannot exclude system path '{}': protected by safety policy (T1)",
+                            value
+                        ));
+                    }
+                }
+
                 if !self.exclusions.system_paths.contains(&value) {
                     self.exclusions.system_paths.push(value);
                 }
             }
             ExclusionKind::PathRegex => {
-                Regex::new(&value).map_err(|e| format!("Invalid regex '{}': {}", value, e))?;
+                let re = Regex::new(&value).map_err(|e| format!("Invalid regex '{}': {}", value, e))?;
+
+                for &t0 in crate::safety::COMPILED_T0_PATHS {
+                    if re.is_match(t0) || re.is_match(&format!("{}/test", t0)) {
+                        return Err(format!(
+                            "Cannot add exclusion regex '{}': matches critical system path '{}' (T0)",
+                            value, t0
+                        ));
+                    }
+                }
+
+                for &t1 in crate::safety::COMPILED_T1_PATHS {
+                    if re.is_match(t1) || re.is_match(&format!("{}/test", t1)) {
+                        return Err(format!(
+                            "Cannot add exclusion regex '{}': matches protected system path '{}' (T1)",
+                            value, t1
+                        ));
+                    }
+                }
+
                 if !self.exclusions.path_regex.contains(&value) {
                     self.exclusions.path_regex.push(value);
                 }
@@ -409,6 +491,7 @@ impl Config {
         let raw = ConfigRaw {
             storage: Some(self.storage.clone()),
             exclusions: Some(self.exclusions.clone()),
+            safety: Some(self.safety.clone()),
             theme: self.theme.clone(),
         };
 
@@ -421,5 +504,36 @@ impl Config {
     pub fn set_theme(&mut self, theme_id: &str) -> Result<PathBuf, String> {
         self.theme = Some(theme_id.to_string());
         self.save_to_user_config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safety_config_defaults() {
+        let cfg = Config::default();
+        assert!(cfg.safety.preserve_root);
+        assert_eq!(cfg.safety.bulk_count, 10);
+        assert!(cfg.safety.extra_protected.is_empty());
+        assert!(cfg.exclusions.system_paths.is_empty());
+    }
+
+    #[test]
+    fn test_add_rule_rejects_t0_and_t1() {
+        let mut cfg = Config::default();
+
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/etc".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/etc/nginx".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/sys".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/proc".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::SystemPath, "/tmp".into()).is_err());
+
+        // Reject regex matching T0/T1
+        assert!(cfg.add_rule(ExclusionKind::PathRegex, r".*/etc/.*".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::PathRegex, r"^/usr/.*".into()).is_err());
+        assert!(cfg.add_rule(ExclusionKind::PathRegex, r".*".into()).is_err());
     }
 }

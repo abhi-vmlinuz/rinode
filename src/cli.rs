@@ -25,6 +25,18 @@ pub enum Commands {
         #[arg(short, long)]
         force: bool,
 
+        /// Allow deletion of protected root (T1) and semi-protected (T3) paths
+        #[arg(long = "allow-protected")]
+        allow_protected: bool,
+
+        /// Do not treat '/' specially (requires --allow-protected and --force)
+        #[arg(long = "no-preserve-root")]
+        no_preserve_root: bool,
+
+        /// Treat '/' specially (default, GNU rm compatibility no-op)
+        #[arg(long = "preserve-root", conflicts_with = "no_preserve_root")]
+        preserve_root: bool,
+
         /// Remove directories and their contents recursively (POSIX rm compatibility)
         #[arg(short = 'r', short_alias = 'R', long)]
         recursive: bool,

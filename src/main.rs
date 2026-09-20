@@ -5,6 +5,7 @@ mod exclusion_cli;
 mod hasher;
 mod init;
 mod restore;
+pub mod safety;
 mod syscalls;
 mod theme;
 mod tui;
@@ -18,6 +19,7 @@ use comfy_table::{Cell, Color, Row, Table};
 use config::Config;
 use db::Db;
 use restore::restore_by_id_or_name;
+use std::io::IsTerminal;
 use vault::VaultManager;
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -154,18 +156,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             paths,
             permanent,
             force,
+            allow_protected,
+            no_preserve_root,
+            preserve_root: _,
             recursive: _,
             verbose,
             interactive: _,
             dir: _,
         } => {
+            let safety_flags = safety::SafetyFlags {
+                is_interactive: std::io::stdin().is_terminal(),
+                allow_protected,
+                no_preserve_root,
+                force,
+                permanent,
+                verbose,
+            };
+
+            let mut verdicts = Vec::new();
+            let mut resolved_paths = Vec::new();
+            let mut has_resolution_error = false;
+
+            for path in &paths {
+                match safety::resolve_checked(path, &config) {
+                    Ok(verdict) => {
+                        verdicts.push(verdict);
+                        resolved_paths.push(path.clone());
+                    }
+                    Err(e) => {
+                        eprintln!("rinode: cannot remove '{}': {}", path.display(), e);
+                        has_resolution_error = true;
+                    }
+                }
+            }
+
+            if has_resolution_error && verdicts.is_empty() {
+                std::process::exit(1);
+            }
+
+            if let Err(e) = safety::verify_safety(&verdicts, &safety_flags, &config, Some(&db)) {
+                eprintln!("rinode: {}", e);
+                std::process::exit(1);
+            }
+
             let vault = VaultManager::new(config.clone());
             let mut preserved_count = 0;
             let mut permanent_count = 0;
             let mut excluded_count = 0;
             let mut new_ids: Vec<i64> = Vec::new();
 
-            for path in paths {
+            for path in resolved_paths {
                 if !path.exists() && !path.is_symlink() {
                     if !force {
                         eprintln!("rinode: cannot remove '{}': No such file or directory", path.display());
@@ -251,6 +291,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // Opportunistic auto-retention + quota (never purges this run's files)
             enforce_retention(&db, &config, &new_ids);
+
+            if has_resolution_error {
+                std::process::exit(1);
+            }
         }
 
         Commands::Ls { limit, all, ids } => {

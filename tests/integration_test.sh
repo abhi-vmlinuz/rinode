@@ -425,7 +425,90 @@ if [ "$MIG_CONTENT" != "legacy file content" ]; then
     echo "[!] Error: Restored legacy content mismatch: $MIG_CONTENT"
     exit 1
 fi
-echo "[+] Legacy migration completed and restored successfully."
+# TEST 8: Sensitive-File Safety Policy & Anti-Trick Protection
+echo -e "\n[TEST 8] Safety Policy & Anti-Trick Verification..."
+
+# 8.1 Lexical refusal of . and ..
+echo "[TEST 8.1] Testing lexical dot / dot-dot refusal..."
+if "$BIN" rm . 2>/dev/null; then
+    echo "[!] Error: 'rinode rm .' succeeded, expected failure!"
+    exit 1
+fi
+if "$BIN" rm .. 2>/dev/null; then
+    echo "[!] Error: 'rinode rm ..' succeeded, expected failure!"
+    exit 1
+fi
+if "$BIN" rm ./ 2>/dev/null; then
+    echo "[!] Error: 'rinode rm ./' succeeded, expected failure!"
+    exit 1
+fi
+
+# 8.2 T0 Root refusal
+echo "[TEST 8.2] Testing T0 root deletion refusal..."
+if "$BIN" rm / 2>/dev/null; then
+    echo "[!] Error: 'rinode rm /' without flags succeeded, expected failure!"
+    exit 1
+fi
+if "$BIN" rm -f / 2>/dev/null; then
+    echo "[!] Error: 'rinode rm -f /' succeeded, expected failure!"
+    exit 1
+fi
+if "$BIN" rm --no-preserve-root / 2>/dev/null; then
+    echo "[!] Error: 'rinode rm --no-preserve-root /' succeeded without allow-protected and force!"
+    exit 1
+fi
+if "$BIN" rm --no-preserve-root --allow-protected -f -p / 2>/dev/null; then
+    echo "[!] Error: 'rinode rm -p /' succeeded, permanent deletion on T0 must be forbidden!"
+    exit 1
+fi
+
+# 8.3 T1 Protected Root refusal
+echo "[TEST 8.3] Testing T1 protected path refusal..."
+if "$BIN" rm /etc/hosts 2>/dev/null; then
+    echo "[!] Error: 'rinode rm /etc/hosts' without flags in non-TTY succeeded, expected failure!"
+    exit 1
+fi
+if "$BIN" rm --allow-protected -p /etc/hosts 2>/dev/null; then
+    echo "[!] Error: 'rinode rm --allow-protected -p /etc/hosts' succeeded, permanent deletion on T1 must be forbidden!"
+    exit 1
+fi
+
+# 8.4 T2 Sensitive material
+echo "[TEST 8.4] Testing T2 sensitive material handling..."
+mkdir -p "$TEST_ROOT/.ssh"
+echo "dummy_key" > "$TEST_ROOT/.ssh/id_rsa"
+if "$BIN" rm "$TEST_ROOT/.ssh/id_rsa" 2>/dev/null; then
+    echo "[!] Error: 'rinode rm .ssh/id_rsa' without -f in non-TTY succeeded, expected failure!"
+    exit 1
+fi
+"$BIN" rm -f "$TEST_ROOT/.ssh/id_rsa"
+if [ -f "$TEST_ROOT/.ssh/id_rsa" ]; then
+    echo "[!] Error: .ssh/id_rsa still exists after rm -f!"
+    exit 1
+fi
+
+echo "cert_key" > "$TEST_ROOT/cert.pem"
+"$BIN" rm -f -p "$TEST_ROOT/cert.pem"
+if [ -f "$TEST_ROOT/cert.pem" ]; then
+    echo "[!] Error: cert.pem still exists after permanent rm -f -p!"
+    exit 1
+fi
+
+# 8.5 Exclude rule hardening against system roots
+echo "[TEST 8.5] Testing exclusion rule rejection on system roots..."
+if "$BIN" exclude /etc 2>/dev/null; then
+    echo "[!] Error: 'rinode exclude /etc' succeeded, expected rejection!"
+    exit 1
+fi
+if "$BIN" exclude /sys 2>/dev/null; then
+    echo "[!] Error: 'rinode exclude /sys' succeeded, expected rejection!"
+    exit 1
+fi
+if "$BIN" exclude ".*/etc/.*" 2>/dev/null; then
+    echo "[!] Error: 'rinode exclude .*/etc/.*' succeeded, expected rejection!"
+    exit 1
+fi
+echo "[+] Safety policy and anti-trick protection verified successfully."
 
 # Cleanup test directory
 rm -rf "$TEST_ROOT"

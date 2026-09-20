@@ -8,17 +8,14 @@ ZSHCOMPDIR ?= /usr/share/zsh/site-functions
 SYSCONFDIR ?= /etc/rinode
 CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/home/$$SUDO_USER/.cargo/bin/cargo" ]; then echo "/home/$$SUDO_USER/.cargo/bin/cargo"; elif [ -x "$$HOME/.cargo/bin/cargo" ]; then echo "$$HOME/.cargo/bin/cargo"; else echo cargo; fi)
 
-.PHONY: all build release install uninstall purge test clean whitepaper
+.PHONY: all build release install install-user uninstall purge test clean whitepaper
 
 all: build
 
 build:
 	$(CARGO) build --release
 
-target/release/rinode:
-	$(CARGO) build --release
-
-install-user: target/release/rinode
+install-user: build
 	install -d $(HOME)/.local/bin
 	install -m 755 target/release/rinode $(HOME)/.local/bin/rinode
 	@echo ""
@@ -32,7 +29,7 @@ install-user: target/release/rinode
 	@echo "    set -gx PATH \"\$$HOME/.local/bin\" \$$PATH"
 	@echo ""
 
-install: target/release/rinode
+install: build
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 target/release/rinode $(DESTDIR)$(BINDIR)/rinode
 	install -d $(DESTDIR)$(MANDIR)
