@@ -18,6 +18,12 @@ build:
 install-user: build
 	install -d $(HOME)/.local/bin
 	install -m 755 target/release/rinode $(HOME)/.local/bin/rinode
+	install -d $(HOME)/.local/share/man/man1
+	install -m 644 man/rinode.1 $(HOME)/.local/share/man/man1/rinode.1
+	install -d $(HOME)/.config/fish/completions
+	install -m 644 completions/rinode.fish $(HOME)/.config/fish/completions/rinode.fish
+	install -d $(HOME)/.local/share/bash-completion/completions
+	install -m 644 completions/rinode.bash $(HOME)/.local/share/bash-completion/completions/rinode
 	@echo ""
 	@echo "rinode user installation complete ($(HOME)/.local/bin/rinode)."
 	@echo "Make sure ~/.local/bin is on your PATH, then restart your shell:"
