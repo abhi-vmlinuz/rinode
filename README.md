@@ -150,12 +150,16 @@ Available themes:
 - `monokai`: Monokai Pro high-contrast palette with vibrant pink, cyan, and yellow.
 - `kanagawa`: Kanagawa Japanese art palette with wave aqua, crystal blue, and autumn red.
 - `cyberpunk`: Cyberpunk Neon high-contrast palette with neon pink, cyan, and lime.
+- `forest`: Deep forest emerald palette with green borders and amber highlights.
+- `sunset`: Vibrant dusk gradient with amber, coral, and violet tones.
+- `moonlight`: Indigo night sky palette with cool blue and silver accents.
+- `high_contrast`: Pure black background with bold yellow, cyan, and magenta.
 
 ### Command-line interface
 
 #### Deleting files
 
-`rinode rm` moves items into local storage. It accepts standard POSIX `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-d`) for drop-in compatibility:
+`rinode rm` moves items into local storage. It accepts standard POSIX `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-d`) for drop-in compatibility, plus safety override flags:
 
 ```bash
 # Delete a single file
@@ -163,6 +167,9 @@ rinode rm report.pdf
 
 # Delete a directory hierarchy
 rinode rm -rf ./build_output/
+
+# Delete a protected system path (prompts in TTY, or pass --allow-protected)
+rinode rm --allow-protected /etc/nginx/sites-available/old.conf
 
 # Permanently delete without preserving (unlinks directly from filesystem)
 rinode rm --no-storage unwanted_cache.tar
@@ -341,6 +348,36 @@ This format provides several properties:
 - **Collision immunity**: Nanosecond timestamps combined with 6 hex characters of random entropy ensure that rapid deletions of files with identical names never collide.
 - **Provenance on disk**: In the event that the SQLite index (`rinode.db`) is removed or corrupted, the entry's original inode number and filesystem device minor ID remain recoverable directly from the storage filename.
 
+## Sensitive-file safety policy
+
+`rinode` enforces an active VFS-aware safety policy to protect against catastrophic deletion commands, symlink traversal tricks, accidental root removal, and credential leakage:
+
+### Protection tiers
+
+- **Tier 0: Refuse (Critical System Roots & Storage)**: `/`, `/proc`, `/sys`, `/dev`, `/run`, internal storage (`.rinode-storage`), metadata database (`rinode.db`), and configuration files.
+  - Overriding requires all three flags: `--no-preserve-root --allow-protected --force`.
+  - Permanent direct unlinking (`--no-storage` / `-p`) is strictly forbidden; items can only be preserved into storage.
+- **Tier 1: Protected Roots & Mount Boundaries**: `/etc`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/boot`, `/root`, `/var`, and active filesystem mount roots (detected via `statx(STATX_MNT_ID)`).
+  - Single file: Prompts `[y/N]` in interactive sessions; requires `--allow-protected` in automated scripts.
+  - Bulk deletion (>10 files or >1 GiB): Prompts `[y/N]` showing count and size; requires `--allow-protected --force` in scripts.
+  - Permanent direct unlinking is strictly forbidden.
+- **Tier 2: Sensitive Material & Credentials**: `~/.ssh`, `~/.gnupg`, `~/.pki`, `~/.aws`, `id_*`, `*.pem`, `*.key`, `.env`, `/etc/shadow`, `/etc/sudoers`.
+  - Prompts `[y/N]` in interactive sessions; `-f` / `--force` confirms in scripts.
+  - Permanent direct unlinking is permitted with confirmation or `-f` so private keys are not forced to linger in storage.
+- **Tier 3: Semi-Protected**: `/opt`, `/srv`.
+  - Prompts `[y/N]` in interactive sessions; `-f` or `--allow-protected` confirms.
+
+### Anti-trick defenses
+
+- **Lexical dot rejection**: Immediately rejects `.`, `..`, `./`, `../`, `foo/.`, `foo/..`, `/./`, and `/.` before filesystem resolution.
+- **Symlink double-checking**: Inspects both the symlink itself and its canonical target path; the strictest tier between them applies.
+- **Temporary directory carve-out**: The root directories of `/tmp` and `/var/tmp` are protected as Tier 0, while temporary child files inside them are treated as standard unlinked exclusions.
+- **Exclusion rule hardening**: The `rinode exclude` command rejects attempts to whitelist Tier 0 or Tier 1 system paths, preventing exclusion-inversion vulnerabilities.
+
+### Audit logging
+
+All safety overrides and denials are automatically logged to the `safety_overrides` table in SQLite (`rinode.db`), recording timestamp, UID, EUID, PID, PPID, working directory, canonical path, safety tier, flags passed, and the decision result.
+
 ## Edge cases and filesystem semantics
 
 ### Symlinks
@@ -361,7 +398,7 @@ Configuration files are resolved in this order:
 Default configuration:
 
 ```toml
-# Theme selection (default, catppuccin, solarized, dracula, gruvbox, tokyo_night, nord)
+# Theme selection (default, catppuccin, solarized, dracula, gruvbox, tokyo_night, nord, rose_pine, one_dark, monokai, kanagawa, cyberpunk, forest, sunset, moonlight, high_contrast)
 theme = "default"
 
 [storage]
@@ -369,14 +406,13 @@ retention_days = 30
 # Max bytes kept in PRESERVED status, oldest pruned first on rm. 0 means unlimited.
 max_storage_bytes = 21474836480 # 20 GiB
 
+[safety]
+preserve_root = true
+bulk_count = 10
+extra_protected = []
+
 [exclusions]
-system_paths = [
-    "/proc",
-    "/sys",
-    "/dev",
-    "/run",
-    "/tmp",
-]
+system_paths = []
 
 path_regex = [
     ".*/node_modules/.*",

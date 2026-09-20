@@ -6,7 +6,7 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 [\fICOMMAND\fR] [\fIOPTIONS\fR]
 .br
 .B rinode rm
-[\fB\-p\fR|\fB\-\-no\-storage\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
+[\fB\-p\fR|\fB\-\-no\-storage\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-\-allow\-protected\fR] [\fB\-\-no\-preserve\-root\fR] [\fB\-\-preserve\-root\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
 .br
 .B rinode ls
 [\fB\-n\fR \fILIMIT\fR] [\fB\-a\fR|\fB\-\-all\fR]
@@ -64,6 +64,7 @@ Press \fBq\fR or \fBEsc\fR to exit.
 .B rm \fIPATH\fR...
 Safely delete one or more files or directory hierarchies by moving them into storage and indexing their metadata.
 Supports standard POSIX \fBrm\fR flags for transparent shell aliasing.
+Protected system paths and sensitive credentials are automatically intercepted by the sensitive-file safety policy.
 .TP
 .B ls
 Display a formatted table of all currently active (preserved) entries in storage, including entry ID, name, size, deletion timestamp, and original path.
@@ -87,16 +88,30 @@ Configures the shortcut command (default: \fBr\fR) and optionally aliases \fBrm\
 .TP
 .B exclude [\fIPATTERN\fR]
 Manage or test pattern and directory exclusions.
-If called without arguments, launches an interactive terminal prompt menu.
+If called without arguments, displays active exclusion rules and usage instructions.
 If a \fIPATTERN\fR is specified (e.g. \fI*.log\fR or \fInode_modules\fR), it is automatically classified and added to your configuration file.
+Exclusion rules matching critical system directories are automatically rejected.
 .SH OPTIONS
 .SS "Options for rm"
 .TP
 .BR \-p ", " \-\-no\-storage ", " \-\-no\-vault ", " \-\-permanent
 Permanently unlink the target without moving it into storage.
+Strictly prohibited on Tier 0 critical system paths and Tier 1 protected roots.
+Allowed on Tier 2 sensitive credentials (with confirmation or \fB\-f\fR) so keys do not linger in storage.
 .TP
 .BR \-f ", " \-\-force
 Ignore nonexistent target paths without printing diagnostic warnings.
+Bypasses interactive confirmation prompts for Tier 2 sensitive credentials and Tier 3 semi-protected paths.
+Does not bypass Tier 0 or Tier 1 protection by itself.
+.TP
+.B \-\-allow\-protected
+Allow deletion of protected system roots (Tier 1: \fI/etc\fR, \fI/usr\fR, \fI/bin\fR, mount roots) and semi-protected directories (Tier 3: \fI/opt\fR, \fI/srv\fR).
+.TP
+.B \-\-no\-preserve\-root
+Do not treat \fI/\fR specially. Required alongside \fB\-\-allow\-protected\fR and \fB\-\-force\fR to delete Tier 0 critical paths. Vaulting is still mandatory; permanent unlinking (\fB\-\-no\-storage\fR) is strictly prohibited.
+.TP
+.B \-\-preserve\-root
+Treat \fI/\fR specially (default; prevents accidental root deletion).
 .TP
 .BR \-r ", " \-R ", " \-\-recursive
 Recursively delete directories and their subtrees (POSIX compatibility; rinode preserves entire directory trees in atomic O(1) time).
@@ -156,6 +171,36 @@ Test a candidate path against current exclusion filters without deleting anythin
 .TP
 .BR \-r ", " \-\-remove " \fIRULE\fR"
 Remove an existing exclusion rule by its pattern text or numbered index.
+.SH SENSITIVE-FILE SAFETY POLICY
+\fBrinode\fR enforces an active kernel-level and lexical protection policy to guard against catastrophic commands, path traversal tricks, accidental root deletion, and credential leakage:
+.TP
+.B Anti-Trick Lexical Parsing
+Paths representing \fB.\fR, \fB..\fR, \fB./\fR, \fB../\fR, \fBfoo/.\fR, \fBfoo/..\fR, or root aliases are immediately rejected prior to any filesystem resolution.
+Symlinks are double-checked: both the symbolic link and its canonical target path are evaluated, and the strictest tier applies.
+The root directories of \fI/tmp\fR and \fI/var/tmp\fR are protected against deletion, while temporary files inside them are permitted.
+.TP
+.B Tier 0: Refuse (Critical System Roots & Rinode Files)
+Includes \fI/\fR, \fI/proc\fR, \fI/sys\fR, \fI/dev\fR, \fI/run\fR, internal storage directories (\fI.rinode-storage\fR), metadata database (\fIrinode.db\fR), and active configuration files.
+Requires all three flags: \fB\-\-no\-preserve\-root \-\-allow\-protected \-\-force\fR.
+Permanent deletion (\fB\-\-no\-storage\fR / \fB\-p\fR) is strictly prohibited on Tier 0 under all circumstances.
+.TP
+.B Tier 1: Protected System Roots & Mount Boundaries
+Includes \fI/etc\fR, \fI/usr\fR, \fI/bin\fR, \fI/sbin\fR, \fI/lib*\fR, \fI/boot\fR, \fI/root\fR, \fI/var\fR, and active filesystem mount roots (discovered via \fBstatx(STATX_MNT_ID)\fR).
+Single-file deletion requires interactive \fB[y/N]\fR confirmation in terminal sessions or \fB\-\-allow\-protected\fR in scripts.
+Bulk deletion (>10 items or >1 GiB) requires interactive confirmation or both \fB\-\-allow\-protected \-\-force\fR.
+Permanent deletion is strictly prohibited on Tier 1.
+.TP
+.B Tier 2: Sensitive Material & Credentials
+Includes private keys, certificates, SSH/GPG directories, AWS credentials, and environment files (\fI~/.ssh\fR, \fI~/.gnupg\fR, \fI~/.aws\fR, \fIid_*\fR, \fI*.pem\fR, \fI*.key\fR, \fI.env\fR, \fI/etc/shadow\fR, \fI/etc/sudoers\fR).
+Interactive sessions prompt for confirmation; \fB\-f\fR / \fB\-\-force\fR confirms in scripts.
+Unlike Tier 0 and Tier 1, permanent deletion (\fB\-\-no\-storage\fR) is permitted with confirmation or force so sensitive keys are not forced to linger in storage.
+.TP
+.B Tier 3: Semi-Protected
+Includes \fI/opt\fR and \fI/srv\fR.
+Prompts for confirmation in interactive sessions; \fB\-f\fR or \fB\-\-allow\-protected\fR confirms in scripts.
+.TP
+.B Automatic Audit Logging
+Every safety override or denial is recorded in the \fBsafety_overrides\fR table within SQLite (\fIrinode.db\fR), logging timestamp, UID, EUID, PID, PPID, current working directory, canonical path, safety tier, flags passed, and final outcome.
 .SH CONFIGURATION
 Configuration files are searched in the following precedence:
 .IP 1. 3
@@ -169,14 +214,19 @@ Example configuration:
 .PP
 .RS
 .nf
+theme = "default"
+
 [storage]
 retention_days = 30
-max_storage_bytes = 21474836480
+max_storage_bytes = 21474836480 # 20 GiB
+
+[safety]
+preserve_root = true
+bulk_count = 10
+extra_protected = []
 
 [exclusions]
-system_paths = [
-    "/proc", "/sys", "/dev", "/run", "/tmp"
-]
+system_paths = []
 path_regex = [
     ".*/node_modules/.*",
     ".*/\\\\.git/.*",
