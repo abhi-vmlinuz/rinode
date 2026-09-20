@@ -504,8 +504,12 @@ if "$BIN" exclude /sys 2>/dev/null; then
     echo "[!] Error: 'rinode exclude /sys' succeeded, expected rejection!"
     exit 1
 fi
-if "$BIN" exclude ".*/etc/.*" 2>/dev/null; then
-    echo "[!] Error: 'rinode exclude .*/etc/.*' succeeded, expected rejection!"
+if "$BIN" exclude "/etc/*" 2>/dev/null; then
+    echo "[!] Error: 'rinode exclude /etc/*' succeeded, expected rejection!"
+    exit 1
+fi
+if "$BIN" exclude "*/etc/*" 2>/dev/null; then
+    echo "[!] Error: 'rinode exclude */etc/*' succeeded, expected rejection!"
     exit 1
 fi
 echo "[+] Safety policy and anti-trick protection verified successfully."
