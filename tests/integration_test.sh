@@ -138,11 +138,11 @@ echo "secret content" > perm_test/unreadable/secret.txt
 chmod 000 perm_test/unreadable
 
 "$BIN" rm -r perm_test
-chmod 755 perm_test/unreadable 2>/dev/null || true
 if [ -d perm_test ]; then
     echo "[!] Error: perm_test still exists!"
     exit 1
 fi
+chmod -R 755 "$TEST_ROOT" 2>/dev/null || true
 echo "[+] Directory with restricted subfolder successfully removed without crash."
 
 # TEST 3: Parent directory deletion recreation (mkdir -p)
@@ -561,6 +561,7 @@ fi
 echo "[+] Safety policy and anti-trick protection verified successfully."
 
 # Cleanup test directory
+chmod -R 755 "$TEST_ROOT" 2>/dev/null || true
 rm -rf "$TEST_ROOT"
 
 echo -e "\n=== ALL RINODE INTEGRATION TESTS PASSED SUCCESSFULLY ===\n"
