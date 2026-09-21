@@ -585,6 +585,44 @@ impl Db {
             purged_at,
         })
     }
+
+    pub fn update_entry_size(&self, id: i64, new_size: u64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entries SET file_size = ? WHERE id = ?",
+            params![new_size, id],
+        )?;
+        Ok(())
+    }
+
+    /// Backfill directory sizes for preserved entries that were stored with raw inode size (<= 4096).
+    pub fn backfill_directory_sizes(&self) {
+        let entries: Vec<(i64, String, u64)> = {
+            let mut stmt = match self.conn.prepare(
+                "SELECT id, vault_path, file_size FROM entries WHERE is_directory = 1 AND status = 'PRESERVED' AND file_size <= 4096",
+            ) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get::<_, String>(1)?, row.get(2)?))
+            });
+            match rows {
+                Ok(r) => r.filter_map(Result::ok).collect(),
+                Err(_) => return,
+            }
+        };
+
+        for (id, vault_path, old_size) in entries {
+            if let Some(path) = resolve_storage_path(&vault_path) {
+                if path.is_dir() {
+                    let new_size = crate::vault::VaultManager::compute_directory_size(&path);
+                    if new_size != old_size {
+                        let _ = self.update_entry_size(id, new_size);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -626,6 +664,44 @@ mod tests {
 
         let v2 = db1.get_data_version().unwrap();
         assert_ne!(v1, v2, "data_version in db1 should change after db2 inserts");
+
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn test_update_entry_size() {
+        let test_dir = std::env::temp_dir().join(format!("rinode_test_sz_{}", std::process::id()));
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let db_path = test_dir.join("test.db");
+        let db = Db::open(&db_path).unwrap();
+
+        let record = NewEntry {
+            dev_major: 1,
+            dev_minor: 2,
+            mnt_id: 3,
+            inode_no: 12345,
+            original_path: "/test/dir".into(),
+            filename: "dir".into(),
+            file_size: 16,
+            mode: 0o755,
+            uid: 1000,
+            gid: 1000,
+            quick_fingerprint: None,
+            vault_path: "/vault/dir".into(),
+            deleted_at: Utc::now(),
+            status: "PRESERVED".into(),
+            is_directory: true,
+            symlink_target: None,
+            link_type: "RENAME_MOVE".into(),
+        };
+
+        let id = db.insert_entry(&record).unwrap();
+        let entry_before = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(entry_before.file_size, 16);
+
+        db.update_entry_size(id, 52428800).unwrap();
+        let entry_after = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(entry_after.file_size, 52428800);
 
         std::fs::remove_dir_all(&test_dir).ok();
     }

@@ -85,12 +85,43 @@ mkdir -p nested/sub1/sub2
 echo "file 1" > nested/sub1/file1.txt
 echo "file 2" > nested/sub1/sub2/file2.txt
 
-"$BIN" rm nested
+# Verify refusal without -r
+if "$BIN" rm nested 2>/dev/null; then
+    echo "[!] Error: 'rinode rm nested' should have failed without -r!"
+    exit 1
+fi
+echo "[+] Directory refusal without -r verified."
+
+# Verify refusal with -d when not empty
+if "$BIN" rm -d nested 2>/dev/null; then
+    echo "[!] Error: 'rinode rm -d nested' should have failed for non-empty directory!"
+    exit 1
+fi
+echo "[+] Non-empty directory refusal with -d verified."
+
+# Verify -d succeeds on empty directory
+mkdir -p empty_dir_test
+"$BIN" rm -d empty_dir_test
+if [ -d empty_dir_test ]; then
+    echo "[!] Error: empty_dir_test still exists after rm -d!"
+    exit 1
+fi
+echo "[+] Empty directory removed with -d."
+
+# Now remove with -r
+"$BIN" rm -r nested
 if [ -d nested ]; then
     echo "[!] Error: nested directory still exists!"
     exit 1
 fi
-echo "[+] Directory removed from original location."
+echo "[+] Directory removed from original location with -r."
+
+# Verify ls shows nested/ with trailing slash
+if ! "$BIN" ls | grep -q "nested/"; then
+    echo "[!] Error: nested/ not displayed with trailing slash in ls!"
+    exit 1
+fi
+echo "[+] Directory displayed as 'nested/' in ls."
 
 "$BIN" restore nested
 if [ ! -f nested/sub1/sub2/file2.txt ]; then
@@ -98,6 +129,21 @@ if [ ! -f nested/sub1/sub2/file2.txt ]; then
     exit 1
 fi
 echo "[+] Directory tree restored completely."
+
+# TEST 2.1: Directory size calculation with unreadable subdirectory
+echo -e "\n[TEST 2.1] Unreadable subfolder resilience test..."
+mkdir -p perm_test/unreadable
+echo "visible content" > perm_test/visible.txt
+echo "secret content" > perm_test/unreadable/secret.txt
+chmod 000 perm_test/unreadable
+
+"$BIN" rm -r perm_test
+chmod 755 perm_test/unreadable 2>/dev/null || true
+if [ -d perm_test ]; then
+    echo "[!] Error: perm_test still exists!"
+    exit 1
+fi
+echo "[+] Directory with restricted subfolder successfully removed without crash."
 
 # TEST 3: Parent directory deletion recreation (mkdir -p)
 echo -e "\n[TEST 3] Parent directory recreation test..."

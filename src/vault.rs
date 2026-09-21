@@ -141,6 +141,67 @@ impl VaultManager {
         Self::copy_dir_all(src, tmp_dest)
     }
 
+    /// Iteratively compute total recursive directory size in bytes.
+    /// Resilient against permission errors (skips unreadable subtrees like `du`).
+    /// Does not follow symlinks, deduplicates hard links, and stays within root mount device.
+    pub fn compute_directory_size(root: &Path) -> u64 {
+        use std::collections::HashSet;
+        use std::os::unix::fs::MetadataExt;
+
+        let mut total_size: u64 = 0;
+        let mut stack = vec![root.to_path_buf()];
+        let mut seen_inodes: HashSet<(u64, u64)> = HashSet::new();
+
+        let root_dev = match fs::symlink_metadata(root) {
+            Ok(m) => {
+                total_size = total_size.saturating_add(m.len());
+                seen_inodes.insert((m.dev(), m.ino()));
+                m.dev()
+            }
+            Err(_) => return 0,
+        };
+
+        while let Some(current_dir) = stack.pop() {
+            let entries = match fs::read_dir(&current_dir) {
+                Ok(entries) => entries,
+                Err(_) => continue, // Permission denied or unreadable directory (e.g. containers overlay)
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let meta = match fs::symlink_metadata(&path) {
+                    Ok(m) => m,
+                    Err(_) => continue, // Cannot stat entry (broken symlink, permission denied, race)
+                };
+
+                // Do not cross into other filesystems/mounts
+                if meta.dev() != root_dev {
+                    continue;
+                }
+
+                // If symlink, do not follow; add length of symlink target path itself
+                if meta.is_symlink() {
+                    total_size = total_size.saturating_add(meta.len());
+                    continue;
+                }
+
+                // Deduplicate hard links
+                let key = (meta.dev(), meta.ino());
+                if !seen_inodes.insert(key) {
+                    continue;
+                }
+
+                total_size = total_size.saturating_add(meta.len());
+
+                if meta.is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+
+        total_size
+    }
+
     /// Preserve a file or directory into the vault
     pub fn preserve(&self, path: &Path, db: &Db, permanent: bool) -> Result<Option<EntryRecord>> {
         let filename = path
@@ -164,6 +225,13 @@ impl VaultManager {
             } else {
                 None
             };
+            let file_size = if info.is_symlink {
+                0
+            } else if info.is_dir {
+                Self::compute_directory_size(&abs_path)
+            } else {
+                info.size
+            };
 
             if abs_path.is_dir() {
                 fs::remove_dir_all(&abs_path)?;
@@ -178,7 +246,7 @@ impl VaultManager {
                 inode_no: info.ino,
                 original_path: abs_path.to_string_lossy().to_string(),
                 filename: filename.clone(),
-                file_size: if info.is_symlink { 0 } else { info.size },
+                file_size,
                 mode: info.mode,
                 uid: info.uid,
                 gid: info.gid,
@@ -202,6 +270,13 @@ impl VaultManager {
                 } else {
                     None
                 };
+                let file_size = if info.is_symlink {
+                    0
+                } else if info.is_dir {
+                    Self::compute_directory_size(&abs_path)
+                } else {
+                    info.size
+                };
                 let new_entry = NewEntry {
                     dev_major: info.dev_major,
                     dev_minor: info.dev_minor,
@@ -209,7 +284,7 @@ impl VaultManager {
                     inode_no: info.ino,
                     original_path: abs_path.to_string_lossy().to_string(),
                     filename: filename.clone(),
-                    file_size: if info.is_symlink { 0 } else { info.size },
+                    file_size,
                     mode: info.mode,
                     uid: info.uid,
                     gid: info.gid,
@@ -276,6 +351,13 @@ impl VaultManager {
             None
         };
 
+        // Compute accurate directory size before move if directory
+        let dir_size = if info.is_dir {
+            Self::compute_directory_size(&abs_path)
+        } else {
+            0
+        };
+
         // Perform atomic rename into the vault
         let link_type = match renameat2_path(&abs_path, &vault_dest, 0) {
             Ok(_) => "RENAME_MOVE".to_string(),
@@ -328,7 +410,7 @@ impl VaultManager {
             inode_no: info.ino,
             original_path: abs_path.to_string_lossy().to_string(),
             filename,
-            file_size: info.size,
+            file_size: if info.is_dir { dir_size } else { info.size },
             mode: info.mode,
             uid: info.uid,
             gid: info.gid,
@@ -343,5 +425,54 @@ impl VaultManager {
 
         let id = db.insert_entry(&new_entry).map_err(Error::other)?;
         db.get_by_id(id).map_err(Error::other)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_compute_directory_size_nested() {
+        let temp_dir = std::env::temp_dir().join(format!("rinode_size_test_{}", std::process::id()));
+        fs::create_dir_all(temp_dir.join("sub1/sub2")).unwrap();
+
+        let mut f1 = File::create(temp_dir.join("sub1/file1.bin")).unwrap();
+        f1.write_all(&[0u8; 1024]).unwrap();
+
+        let mut f2 = File::create(temp_dir.join("sub1/sub2/file2.bin")).unwrap();
+        f2.write_all(&[0u8; 2048]).unwrap();
+
+        let size = VaultManager::compute_directory_size(&temp_dir);
+        // Size must include at least 1024 + 2048 = 3072 bytes (plus directory inodes)
+        assert!(size >= 3072, "Computed size {} was less than file content 3072", size);
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_compute_directory_size_unreadable_subfolder() {
+        let temp_dir = std::env::temp_dir().join(format!("rinode_unreadable_test_{}", std::process::id()));
+        let sub = temp_dir.join("restricted");
+        fs::create_dir_all(&sub).unwrap();
+
+        let mut f1 = File::create(temp_dir.join("visible.bin")).unwrap();
+        f1.write_all(&[0u8; 1000]).unwrap();
+
+        let mut f2 = File::create(sub.join("secret.bin")).unwrap();
+        f2.write_all(&[0u8; 2000]).unwrap();
+
+        // Make restricted subfolder unreadable (000)
+        fs::set_permissions(&sub, Permissions::from_mode(0o000)).unwrap();
+
+        // Must not crash or error; returns at least the visible file size
+        let size = VaultManager::compute_directory_size(&temp_dir);
+        assert!(size >= 1000, "Computed size {} should include accessible files", size);
+
+        // Restore permissions for cleanup
+        let _ = fs::set_permissions(&sub, Permissions::from_mode(0o755));
+        fs::remove_dir_all(&temp_dir).unwrap();
     }
 }

@@ -19,6 +19,7 @@ use comfy_table::{Cell, Color, Row, Table};
 use config::Config;
 use db::Db;
 use restore::restore_by_id_or_name;
+use std::fs;
 use std::io::IsTerminal;
 use vault::VaultManager;
 
@@ -103,7 +104,7 @@ pub fn format_display_name(filename: &str, max_len: usize) -> String {
     format!("{}...", prefix)
 }
 
-fn enforce_retention(db: &Db, config: &config::Config, protect_ids: &[i64]) {
+fn enforce_retention(db: &Db, config: &Config, protect_ids: &[i64]) {
     // Finding 5: opportunistic auto-retention. `rm` triggers a <1ms indexed
     // expired-query plus quota check, so storage never grows unbounded when
     // users forget manual `purge`. Retention 14d default; quota 20GiB default.
@@ -144,6 +145,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::load();
     let db = Db::open_default()?;
 
+    // Backfill real sizes for directories stored prior to recursive measurement
+    db.backfill_directory_sizes();
+
     // Default to interactive TUI if no subcommand is passed
     let command = args.command.unwrap_or(Commands::Tui);
 
@@ -159,10 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             allow_protected,
             no_preserve_root,
             preserve_root: _,
-            recursive: _,
+            recursive,
             verbose,
             interactive: _,
-            dir: _,
+            dir,
         } => {
             let safety_flags = safety::SafetyFlags {
                 is_interactive: std::io::stdin().is_terminal(),
@@ -204,13 +208,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut permanent_count = 0;
             let mut excluded_count = 0;
             let mut new_ids: Vec<i64> = Vec::new();
+            let mut has_removal_error = false;
 
             for path in resolved_paths {
                 if !path.exists() && !path.is_symlink() {
                     if !force {
                         eprintln!("rinode: cannot remove '{}': No such file or directory", path.display());
+                        has_removal_error = true;
                     }
                     continue;
+                }
+
+                let is_directory = match fs::symlink_metadata(&path) {
+                    Ok(m) => m.is_dir(),
+                    Err(_) => false,
+                };
+
+                if is_directory && !recursive {
+                    if dir {
+                        let is_empty = match fs::read_dir(&path) {
+                            Ok(mut entries) => entries.next().is_none(),
+                            Err(e) => {
+                                eprintln!("rinode: cannot remove '{}': {}", path.display(), e);
+                                has_removal_error = true;
+                                continue;
+                            }
+                        };
+                        if !is_empty {
+                            eprintln!("rinode: cannot remove '{}': Directory not empty", path.display());
+                            has_removal_error = true;
+                            continue;
+                        }
+                    } else {
+                        eprintln!("rinode: cannot remove '{}': Is a directory", path.display());
+                        has_removal_error = true;
+                        continue;
+                    }
                 }
 
                 if verbose {
@@ -250,6 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(e) => {
                         eprintln!("rinode: failed to remove '{}': {}", path.display(), e);
+                        has_removal_error = true;
                     }
                 }
             }
@@ -292,7 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Opportunistic auto-retention + quota (never purges this run's files)
             enforce_retention(&db, &config, &new_ids);
 
-            if has_resolution_error {
+            if has_resolution_error || has_removal_error {
                 std::process::exit(1);
             }
         }
@@ -346,15 +380,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             for entry in entries {
                 let formatted_date = entry.deleted_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string();
-                let display_size = if entry.is_directory {
-                    "<DIR>".to_string()
-                } else if entry.link_type == "SYMLINK" {
+                let display_size = if entry.link_type == "SYMLINK" {
                     "<SYMLINK>".to_string()
                 } else {
                     format_bytes(entry.file_size)
                 };
 
-                let display_name = format_display_name(&entry.filename, max_name_len);
+                let filename_display = if entry.is_directory && !entry.filename.ends_with('/') {
+                    format!("{}/", entry.filename)
+                } else {
+                    entry.filename.clone()
+                };
+                let display_name = format_display_name(&filename_display, max_name_len);
                 let display_path = format_display_path(&entry.original_path, max_refs);
 
                 let mut row_cells = vec![

@@ -245,12 +245,16 @@ fn main_loop<B: ratatui::backend::Backend>(
                     "  "
                 };
 
-                let size_text = if entry.is_directory {
-                    "<DIR>".to_string()
-                } else if entry.link_type == "SYMLINK" {
+                let size_text = if entry.link_type == "SYMLINK" {
                     "<SYMLINK>".to_string()
                 } else {
                     format_bytes(entry.file_size)
+                };
+
+                let filename_display = if entry.is_directory && !entry.filename.ends_with('/') {
+                    format!("{}/", entry.filename)
+                } else {
+                    entry.filename.clone()
                 };
 
                 let date_text = entry.deleted_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
@@ -271,7 +275,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     Cell::from(Span::styled(entry.id.to_string(), name_style)),
                     Cell::from(Line::from(vec![
                         Span::styled(prefix, prefix_style),
-                        Span::styled(&entry.filename, name_style),
+                        Span::styled(filename_display, name_style),
                     ])),
                     Cell::from(Span::styled(size_text, name_style)),
                     Cell::from(Span::styled(date_text, name_style)),
@@ -606,11 +610,17 @@ fn main_loop<B: ratatui::backend::Backend>(
                     };
                     let time_str = time_dt.with_timezone(&Local).format(time_format).to_string();
 
+                    let filename_display = if entry.is_directory && !entry.filename.ends_with('/') {
+                        format!("{}/", entry.filename)
+                    } else {
+                        entry.filename.clone()
+                    };
+
                     Row::new(vec![
                         Cell::from(Span::styled(entry.id.to_string(), name_style)),
                         Cell::from(Line::from(vec![
                             Span::styled(prefix, prefix_style),
-                            Span::styled(&entry.filename, name_style),
+                            Span::styled(filename_display, name_style),
                         ])),
                         Cell::from(Span::styled(entry.inode_no.to_string(), name_style)),
                         Cell::from(Span::styled(&entry.status, Style::default().fg(status_color).add_modifier(Modifier::BOLD))),
