@@ -13,7 +13,13 @@ CARGO ?= $(shell which cargo 2>/dev/null || if [ -n "$$SUDO_USER" ] && [ -x "/ho
 all: build
 
 build:
-	$(CARGO) build --release
+	@if [ -n "$$SUDO_USER" ]; then \
+		USER_HOME=$$(getent passwd "$$SUDO_USER" | cut -d: -f6); \
+		CARGO_BIN="$$(if [ -x "$$USER_HOME/.cargo/bin/cargo" ]; then echo "$$USER_HOME/.cargo/bin/cargo"; elif which cargo >/dev/null 2>&1; then which cargo; else echo cargo; fi)"; \
+		sudo -u "$$SUDO_USER" env "HOME=$$USER_HOME" "RUSTUP_HOME=$$USER_HOME/.rustup" "CARGO_HOME=$$USER_HOME/.cargo" "PATH=$$USER_HOME/.cargo/bin:$$PATH" "$$CARGO_BIN" build --release; \
+	else \
+		$(CARGO) build --release; \
+	fi
 
 install-user: build
 	install -d $(HOME)/.local/bin
