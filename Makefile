@@ -78,9 +78,21 @@ install: build
 	@echo "  rinode init fish --alias-rm | source"
 	@echo "------------------------------------------------------------"
 	@echo ""
-	@INSTALLED="$(DESTDIR)$(BINDIR)/rinode"; ACTIVE="$$(command -v rinode || true)"; \
-	if [ -n "$$ACTIVE" ] && [ "$$ACTIVE" != "$$INSTALLED" ]; then \
-		echo "WARNING: installed to '$$INSTALLED', but '$$ACTIVE' wins on your PATH."; \
+	@INSTALLED_REAL="$$(readlink -f "$(DESTDIR)$(BINDIR)/rinode" 2>/dev/null || echo "$(DESTDIR)$(BINDIR)/rinode")"; \
+	ACTIVE="$$(command -v rinode || true)"; \
+	ACTIVE_REAL="$$(readlink -f "$$ACTIVE" 2>/dev/null || echo "$$ACTIVE")"; \
+	if [ -n "$$SUDO_USER" ]; then \
+		USER_HOME=$$(getent passwd "$$SUDO_USER" | cut -d: -f6); \
+		USER_COPY="$$USER_HOME/.local/bin/rinode"; \
+		if [ -f "$$USER_COPY" ] && [ "$$(readlink -f "$$USER_COPY" 2>/dev/null)" != "$$INSTALLED_REAL" ]; then \
+			echo "WARNING: A local copy exists at '$$USER_COPY' which shadows '$$INSTALLED_REAL' in your shell."; \
+			echo "To use this newly installed systemwide version, remove or update the user copy:"; \
+			echo "  rm '$$USER_COPY'           # removes local copy so /usr/local/bin wins"; \
+			echo "  make install-user          # or update the user copy directly"; \
+			echo ""; \
+		fi; \
+	elif [ -n "$$ACTIVE" ] && [ "$$ACTIVE_REAL" != "$$INSTALLED_REAL" ]; then \
+		echo "WARNING: installed to '$(DESTDIR)$(BINDIR)/rinode', but '$$ACTIVE' wins on your PATH."; \
 		echo "Remove the stale copy if you only want the system installation:"; \
 		echo "  rm -i '$$ACTIVE'"; \
 		echo ""; \
