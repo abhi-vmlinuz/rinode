@@ -140,6 +140,23 @@ fn enforce_retention(db: &Db, config: &Config, protect_ids: &[i64]) {
     }
 }
 
+fn is_crossing_fs(dir: &std::path::Path, root_dev: (u32, u32)) -> bool {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Ok(st) = syscalls::statx_path(&p) {
+                if (st.dev_major, st.dev_minor) != root_dev {
+                    return true;
+                }
+                if st.is_dir && is_crossing_fs(&p, root_dev) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let mut config = Config::load();
@@ -162,16 +179,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             force,
             allow_protected,
             no_preserve_root,
-            preserve_root: _,
+            preserve_root,
             recursive,
             verbose,
-            interactive: _,
+            interactive,
+            interactive_once,
+            one_file_system,
             dir,
         } => {
+            let effective_no_preserve_root = if no_preserve_root {
+                true
+            } else if preserve_root {
+                false
+            } else {
+                !config.safety.preserve_root
+            };
+
+            let is_term = std::io::stdin().is_terminal();
+
             let safety_flags = safety::SafetyFlags {
-                is_interactive: std::io::stdin().is_terminal(),
+                is_interactive: is_term,
                 allow_protected,
-                no_preserve_root,
+                no_preserve_root: effective_no_preserve_root,
                 force,
                 permanent,
                 verbose,
@@ -184,8 +213,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for path in &paths {
                 match safety::resolve_checked(path, &config) {
                     Ok(verdict) => {
+                        resolved_paths.push(verdict.raw_path.clone());
                         verdicts.push(verdict);
-                        resolved_paths.push(path.clone());
                     }
                     Err(e) => {
                         eprintln!("rinode: cannot remove '{}': {}", path.display(), e);
@@ -201,6 +230,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = safety::verify_safety(&verdicts, &safety_flags, &config, Some(&db)) {
                 eprintln!("rinode: {}", e);
                 std::process::exit(1);
+            }
+
+            // GNU rm -I: prompt once if removing more than 3 files or removing recursively
+            if interactive_once && !interactive && is_term && (resolved_paths.len() > 3 || recursive) {
+                use std::io::Write;
+                eprint!(
+                    "rinode: remove {} argument(s) (recursive: {})? [y/N]: ",
+                    resolved_paths.len(),
+                    recursive
+                );
+                std::io::stderr().flush().ok();
+                let mut resp = String::new();
+                if std::io::stdin().read_line(&mut resp).is_err() || !resp.trim().eq_ignore_ascii_case("y") {
+                    eprintln!("rinode: operation cancelled.");
+                    std::process::exit(0);
+                }
             }
 
             let vault = VaultManager::new(config.clone());
@@ -242,6 +287,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         eprintln!("rinode: cannot remove '{}': Is a directory", path.display());
                         has_removal_error = true;
+                        continue;
+                    }
+                }
+
+                if one_file_system && is_directory {
+                    if let Ok(st) = syscalls::statx_path(&path) {
+                        let root_dev = (st.dev_major, st.dev_minor);
+                        if is_crossing_fs(&path, root_dev) {
+                            eprintln!("rinode: skipping '{}': crosses filesystem boundary (--one-file-system)", path.display());
+                            has_removal_error = true;
+                            continue;
+                        }
+                    }
+                }
+
+                if interactive && is_term {
+                    use std::io::Write;
+                    let kind = if is_directory { "directory" } else { "file" };
+                    eprint!("rinode: remove {} '{}'? [y/N]: ", kind, path.display());
+                    std::io::stderr().flush().ok();
+                    let mut resp = String::new();
+                    if std::io::stdin().read_line(&mut resp).is_err() || !resp.trim().eq_ignore_ascii_case("y") {
                         continue;
                     }
                 }
@@ -333,7 +400,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Ls { limit, all, ids } => {
             let entries = if all {
-                db.list_all(None)?
+                db.list_all(Some(limit))?
             } else {
                 db.list_active(Some(limit))?
             };

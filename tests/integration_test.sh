@@ -4,15 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN="${BIN:-$REPO_ROOT/target/release/rinode}"
-TEST_ROOT="$HOME/rinode_test_$(date +%s)"
+TEST_ROOT="${TEST_ROOT:-$HOME/rinode_test_$(date +%s)}"
 mkdir -p "$TEST_ROOT"
-cp "$REPO_ROOT/rinode.toml" "$TEST_ROOT/rinode.toml"
-cd "$TEST_ROOT"
 
 # Isolate test database, vault, and config completely from host system
 export XDG_DATA_HOME="$TEST_ROOT/data"
 export XDG_CONFIG_HOME="$TEST_ROOT/config"
-mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
+mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME/rinode"
+cp "$REPO_ROOT/rinode.toml" "$XDG_CONFIG_HOME/rinode/config.toml"
+cd "$TEST_ROOT"
 
 echo "=== RINODE INTEGRATION TESTS IN $TEST_ROOT ==="
 
@@ -558,6 +558,71 @@ if "$BIN" exclude "*/etc/*" 2>/dev/null; then
     echo "[!] Error: 'rinode exclude */etc/*' succeeded, expected rejection!"
     exit 1
 fi
+
+# 8.6 Symlink with trailing slash test
+echo "[TEST 8.6] Testing symlink with trailing slash does not delete target..."
+mkdir -p "$TEST_ROOT/symlink_target_dir"
+echo "inside target" > "$TEST_ROOT/symlink_target_dir/file.txt"
+ln -s "$TEST_ROOT/symlink_target_dir" "$TEST_ROOT/symlink_dir"
+"$BIN" rm "$TEST_ROOT/symlink_dir/"
+if [ -L "$TEST_ROOT/symlink_dir" ]; then
+    echo "[!] Error: symlink_dir still exists!"
+    exit 1
+fi
+if [ ! -f "$TEST_ROOT/symlink_target_dir/file.txt" ]; then
+    echo "[!] Error: target directory was deleted when removing symlink with trailing slash!"
+    exit 1
+fi
+echo "[+] Symlink with trailing slash safely unlinked without affecting target directory."
+
+# 8.7 Directory named 'core' is not excluded as core dump
+echo "[TEST 8.7] Testing directory named 'core' is preserved not excluded..."
+mkdir -p "$TEST_ROOT/core_test/core"
+echo "hello" > "$TEST_ROOT/core_test/core/sample.txt"
+"$BIN" rm -r "$TEST_ROOT/core_test/core"
+CORE_STATUS=$("$BIN" ls -a | grep "core" | head -n 1 | awk '{print $NF}')
+if [ "$CORE_STATUS" == "EXCLUDED" ]; then
+    echo "[!] Error: directory named 'core' was treated as core dump regex and excluded!"
+    exit 1
+fi
+echo "[+] Directory named 'core' correctly preserved."
+
+# 8.8 Filename near NAME_MAX (240 chars)
+echo "[TEST 8.8] Testing near NAME_MAX (240 chars) filename..."
+LONG_NAME=$(printf 'a%.0s' {1..240})
+echo "long payload" > "$TEST_ROOT/$LONG_NAME"
+"$BIN" rm "$TEST_ROOT/$LONG_NAME"
+"$BIN" restore "$LONG_NAME"
+if [ ! -f "$TEST_ROOT/$LONG_NAME" ]; then
+    echo "[!] Error: Long filename failed to restore!"
+    exit 1
+fi
+echo "[+] Long filename handled and restored successfully."
+
+# 8.9 Self-protection of database and vault
+echo "[TEST 8.9] Testing self-protection of rinode database and storage..."
+if "$BIN" rm "$XDG_DATA_HOME/rinode" 2>/dev/null; then
+    echo "[!] Error: 'rinode rm' on data directory succeeded, expected T0Refuse!"
+    exit 1
+fi
+echo "[+] Self-protection verified."
+
+# 8.10 Safe restore --force refusal when destination is a directory
+echo "[TEST 8.10] Testing restore --force refuses wiping directory with file..."
+echo "file to restore" > "$TEST_ROOT/test_clobber.txt"
+"$BIN" rm "$TEST_ROOT/test_clobber.txt"
+mkdir -p "$TEST_ROOT/test_clobber.txt/important_subdir"
+echo "do not delete" > "$TEST_ROOT/test_clobber.txt/important_subdir/keep.txt"
+if "$BIN" restore --force test_clobber.txt 2>/dev/null; then
+    echo "[!] Error: 'restore --force' clobbered a directory with a file!"
+    exit 1
+fi
+if [ ! -f "$TEST_ROOT/test_clobber.txt/important_subdir/keep.txt" ]; then
+    echo "[!] Error: Directory contents were wiped by restore --force!"
+    exit 1
+fi
+echo "[+] Safe restore --force guardrail verified."
+
 echo "[+] Safety policy and anti-trick protection verified successfully."
 
 # Cleanup test directory

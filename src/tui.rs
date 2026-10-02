@@ -27,6 +27,7 @@ enum ViewMode {
     ActionMenu,
     InspectModal,
     ExclusionModal,
+    ConfirmDeleteModal,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -35,12 +36,45 @@ enum ActivePane {
     History,
 }
 
+fn base64_encode(input: &str) -> String {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(CHARSET[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(CHARSET[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(CHARSET[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(CHARSET[(triple & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 pub fn run_tui(db: &Db, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    // Register panic hook to restore terminal to canonical mode on panic
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen, crossterm::cursor::Show);
+        prev_hook(panic_info);
+    }));
 
     let mut config_clone = config.clone();
     let res = main_loop(&mut terminal, db, &mut config_clone);
@@ -717,6 +751,11 @@ fn main_loop<B: ratatui::backend::Backend>(
                 ViewMode::ExclusionModal => Line::from(vec![
                     Span::styled("[Esc/q/e] Close", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 ]),
+                ViewMode::ConfirmDeleteModal => Line::from(vec![
+                    Span::styled("[y/Enter] Confirm Delete  ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [n/Esc/q] Cancel", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    status_span,
+                ]),
             };
 
             let footer_widget = Paragraph::new(vec![footer_nav]);
@@ -948,6 +987,47 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let excl_widget = Paragraph::new(lines).block(modal_block);
                 f.render_widget(excl_widget, popup_area);
             }
+
+            // 7. CONFIRM DELETE MODAL
+            if view_mode == ViewMode::ConfirmDeleteModal {
+                if let Some(entry) = entries.get(selected_idx) {
+                    let popup_area = centered_rect(55, 30, size);
+                    f.render_widget(Clear, popup_area);
+
+                    let title = format!(" Permanently Delete: {}? ", entry.filename);
+                    let mut modal_block = Block::default()
+                        .title(Span::styled(title, Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)))
+                        .title_alignment(Alignment::Center)
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(theme.warning));
+
+                    if let Some(bg_color) = theme.bg {
+                        modal_block = modal_block.style(Style::default().bg(bg_color));
+                    }
+
+                    let lines = vec![
+                        Line::from(""),
+                        Line::from(vec![
+                            Span::styled("  Are you sure you want to permanently delete this item?", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled(format!("  Path: '{}'  (size: {})", entry.original_path, format_bytes(entry.file_size)), Style::default().fg(theme.value_fg)),
+                        ]),
+                        Line::from(""),
+                        Line::from(vec![
+                            Span::styled("  This cannot be undone. Storage file will be permanently unlinked.", Style::default().fg(theme.warning)),
+                        ]),
+                        Line::from(""),
+                        Line::from(vec![
+                            Span::styled("  [y/Enter] Confirm Delete    [n/Esc/q] Cancel", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                        ]),
+                    ];
+
+                    let del_widget = Paragraph::new(lines).block(modal_block);
+                    f.render_widget(del_widget, popup_area);
+                }
+            }
         })?;
 
         // EVENT HANDLING
@@ -1156,23 +1236,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                         }
-                        KeyCode::Char('x') if active_pane == ActivePane::Deleted => {
-                            // Quick delete (applies to Deleted pane)
-                            if let Some(idx) = table_state.selected() {
-                                if let Some(entry) = entries.get(idx) {
-                                    db.purge_entry(entry).ok();
-                                    status_message = Some(format!("Deleted '{}' permanently", entry.filename));
-                                    entries = db.list_active(None)?;
-                                    history_entries = db.list_history(None)?;
-                                    last_data_version = db.get_data_version().unwrap_or(last_data_version);
-                                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
-                                        history_table_state.select(Some(0));
-                                    }
-                                    if idx >= entries.len() && !entries.is_empty() {
-                                        table_state.select(Some(entries.len() - 1));
-                                    }
-                                }
-                            }
+                        KeyCode::Char('x') if active_pane == ActivePane::Deleted && !entries.is_empty() => {
+                            view_mode = ViewMode::ConfirmDeleteModal;
                         }
                         KeyCode::Char('e') => {
                             view_mode = ViewMode::ExclusionModal;
@@ -1209,6 +1274,35 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     ViewMode::ExclusionModal => match key.code {
                         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('e') | KeyCode::Enter => {
+                            view_mode = ViewMode::Browsing;
+                        }
+                        _ => {}
+                    },
+
+                    ViewMode::ConfirmDeleteModal => match key.code {
+                        KeyCode::Char('y') | KeyCode::Enter => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    if let Err(e) = db.purge_entry(entry) {
+                                        status_message = Some(format!("Error deleting: {}", e));
+                                    } else {
+                                        status_message = Some(format!("Deleted '{}' permanently", entry.filename));
+                                    }
+                                    entries = db.list_active(None).unwrap_or_default();
+                                    history_entries = db.list_history(None).unwrap_or_default();
+                                    last_data_version = db.get_data_version().unwrap_or(last_data_version);
+                                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                                        history_table_state.select(Some(0));
+                                    }
+                                    if idx >= entries.len() && !entries.is_empty() {
+                                        table_state.select(Some(entries.len() - 1));
+                                    }
+                                }
+                            }
+                            view_mode = ViewMode::Browsing;
+                        }
+                        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+                            status_message = Some("Permanent delete cancelled".into());
                             view_mode = ViewMode::Browsing;
                         }
                         _ => {}
@@ -1267,6 +1361,11 @@ fn execute_action(
             match restore_entry(db, &entry, true, false) {
                 Ok(_) => {
                     *status_message = Some(format!("Restored '{}' (copy kept)", entry.filename));
+                    *entries = db.list_active(None).unwrap_or_default();
+                    *history_entries = db.list_history(None).unwrap_or_default();
+                    if history_table_state.selected().is_none() && !history_entries.is_empty() {
+                        history_table_state.select(Some(0));
+                    }
                 }
                 Err(e) => {
                     *status_message = Some(format!("Restore error: {}", e));
@@ -1279,22 +1378,14 @@ fn execute_action(
             *view_mode = ViewMode::InspectModal;
         }
         3 => {
-            // 4. Delete permanently
-            db.purge_entry(&entry).ok();
-            *status_message = Some(format!("Deleted '{}' permanently", entry.filename));
-            *entries = db.list_active(None).unwrap_or_default();
-            *history_entries = db.list_history(None).unwrap_or_default();
-            if history_table_state.selected().is_none() && !history_entries.is_empty() {
-                history_table_state.select(Some(0));
-            }
-            if sel >= entries.len() && !entries.is_empty() {
-                table_state.select(Some(entries.len() - 1));
-            }
-            *view_mode = ViewMode::Browsing;
+            // 4. Delete permanently (prompt confirmation first)
+            *view_mode = ViewMode::ConfirmDeleteModal;
         }
         4 => {
-            // 5. Copy path
-            *status_message = Some(format!("Path: {}", entry.original_path));
+            // 5. Copy path via OSC 52
+            let b64 = base64_encode(&entry.original_path);
+            let _ = execute!(std::io::stdout(), crossterm::style::Print(format!("\x1b]52;c;{}\x07", b64)));
+            *status_message = Some(format!("Copied path to clipboard: {}", entry.original_path));
             *view_mode = ViewMode::Browsing;
         }
         _ => {}

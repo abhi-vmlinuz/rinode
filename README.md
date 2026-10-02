@@ -159,7 +159,7 @@ Available themes:
 
 #### Deleting files
 
-`rinode rm` moves items into local storage. It accepts standard POSIX `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-d`) for drop-in compatibility, plus safety override flags:
+`rinode rm` moves items into local storage. It accepts standard POSIX and GNU `rm` flags (`-r`, `-R`, `-f`, `-v`, `-i`, `-I`, `-d`, `--one-file-system`, `--preserve-root`, `--no-preserve-root`) for drop-in compatibility, plus safety override flags:
 
 ```bash
 # Delete a single file

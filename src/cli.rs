@@ -49,6 +49,14 @@ pub enum Commands {
         #[arg(short = 'i', long)]
         interactive: bool,
 
+        /// Prompt once before removing more than three files, or when removing recursively (GNU rm compatibility)
+        #[arg(short = 'I')]
+        interactive_once: bool,
+
+        /// When removing a hierarchy recursively, skip any directory on a different filesystem
+        #[arg(long = "one-file-system")]
+        one_file_system: bool,
+
         /// Remove empty directories (POSIX rm compatibility)
         #[arg(short = 'd', long)]
         dir: bool,
