@@ -37,12 +37,12 @@ fn default_system_paths() -> Vec<String> {
 
 fn default_path_regex() -> Vec<String> {
     vec![
-        r".*/node_modules/.*".into(),
-        r".*/\.git/.*".into(),
-        r".*/target/(debug|release)/.*".into(),
-        r".*/build/.*".into(),
-        r".*/\.cache/.*".into(),
-        r".*/__pycache__/.*".into(),
+        r"^.*/node_modules/.*$".into(),
+        r"^.*/\.git/.*$".into(),
+        r"^.*/target/(debug|release)/.*$".into(),
+        r"^.*/\.build/.*$".into(),
+        r"^.*/\.cache/.*$".into(),
+        r"^.*/__pycache__/.*$".into(),
     ]
 }
 
@@ -109,8 +109,8 @@ pub struct Config {
     pub exclusions: ExclusionsConfig,
     pub safety: SafetyConfig,
     pub theme: Option<String>,
-    compiled_path_regex: Vec<Regex>,
-    compiled_filename_regex: Vec<Regex>,
+    compiled_path_regex: Vec<(String, Regex)>,
+    compiled_filename_regex: Vec<(String, Regex)>,
 }
 
 fn compile_regex_with_glob_fallback(pattern: &str) -> Option<Regex> {
@@ -138,12 +138,12 @@ impl Default for Config {
         let compiled_path_regex = exclusions
             .path_regex
             .iter()
-            .filter_map(|r| compile_regex_with_glob_fallback(r))
+            .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
             .collect();
         let compiled_filename_regex = exclusions
             .filename_regex
             .iter()
-            .filter_map(|r| compile_regex_with_glob_fallback(r))
+            .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
             .collect();
 
         Config {
@@ -184,7 +184,6 @@ pub fn config_dir() -> PathBuf {
 impl Config {
     pub fn load() -> Self {
         let candidates = [
-            PathBuf::from("rinode.toml"),
             config_dir().join("config.toml"),
             PathBuf::from("/etc/rinode/config.toml"),
         ];
@@ -204,7 +203,8 @@ impl Config {
 
     fn from_raw(raw: ConfigRaw) -> Self {
         let mut cfg = Config::default();
-        if let Some(s) = raw.storage {
+        if let Some(mut s) = raw.storage {
+            s.retention_days = s.retention_days.max(1);
             cfg.storage = s;
         }
         if let Some(s) = raw.safety {
@@ -217,12 +217,12 @@ impl Config {
             cfg.compiled_path_regex = e
                 .path_regex
                 .iter()
-                .filter_map(|r| compile_regex_with_glob_fallback(r))
+                .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
                 .collect();
             cfg.compiled_filename_regex = e
                 .filename_regex
                 .iter()
-                .filter_map(|r| compile_regex_with_glob_fallback(r))
+                .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
                 .collect();
             cfg.exclusions = e;
         }
@@ -290,12 +290,12 @@ impl Config {
     }
 
     /// Check if a path or filename is excluded
-    pub fn is_excluded(&self, path: &Path, filename: &str) -> bool {
-        self.test_path(path, filename).is_some()
+    pub fn is_excluded(&self, path: &Path, filename: &str, is_dir: bool) -> bool {
+        self.test_path(path, filename, is_dir).is_some()
     }
 
     /// Test a path and return a detailed diagnostic of what matched (if any)
-    pub fn test_path(&self, path: &Path, filename: &str) -> Option<String> {
+    pub fn test_path(&self, path: &Path, filename: &str, is_dir: bool) -> Option<String> {
         let abs_path = if path.is_absolute() {
             None
         } else {
@@ -314,20 +314,20 @@ impl Config {
         }
 
         // 2. Check path regex
-        for (i, re) in self.compiled_path_regex.iter().enumerate() {
+        for (raw_rule, re) in &self.compiled_path_regex {
             if re.is_match(&path_str)
                 || abs_path_str.as_ref().is_some_and(|p| re.is_match(p))
             {
-                let raw_rule = self.exclusions.path_regex.get(i).map(|s| s.as_str()).unwrap_or("unknown");
                 return Some(format!("path_regex rule '{}'", raw_rule));
             }
         }
 
-        // 3. Check filename regex
-        for (i, re) in self.compiled_filename_regex.iter().enumerate() {
-            if re.is_match(filename) {
-                let raw_rule = self.exclusions.filename_regex.get(i).map(|s| s.as_str()).unwrap_or("unknown");
-                return Some(format!("filename_regex rule '{}'", raw_rule));
+        // 3. Check filename regex (only for regular files, never directories)
+        if !is_dir {
+            for (raw_rule, re) in &self.compiled_filename_regex {
+                if re.is_match(filename) {
+                    return Some(format!("filename_regex rule '{}'", raw_rule));
+                }
             }
         }
 
@@ -340,18 +340,26 @@ impl Config {
             .exclusions
             .path_regex
             .iter()
-            .filter_map(|r| compile_regex_with_glob_fallback(r))
+            .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
             .collect();
         self.compiled_filename_regex = self
             .exclusions
             .filename_regex
             .iter()
-            .filter_map(|r| compile_regex_with_glob_fallback(r))
+            .filter_map(|r| compile_regex_with_glob_fallback(r).map(|re| (r.clone(), re)))
             .collect();
     }
 
     /// Add a new exclusion rule and persist it to user configuration
     pub fn add_rule(&mut self, kind: ExclusionKind, value: String) -> Result<PathBuf, String> {
+        let trimmed_val = value.trim();
+        if trimmed_val == "*" || trimmed_val == ".*" || trimmed_val == "^.*$" || trimmed_val == "/*" || trimmed_val == "^.*" {
+            return Err(format!(
+                "Cannot add exclusion pattern '{}': rule is dangerously broad and would match all files",
+                value
+            ));
+        }
+
         match kind {
             ExclusionKind::SystemPath => {
                 let trimmed = value.trim_end_matches('/');
@@ -395,6 +403,13 @@ impl Config {
             ExclusionKind::PathRegex => {
                 let re = Regex::new(&value).map_err(|e| format!("Invalid regex '{}': {}", value, e))?;
 
+                if re.is_match("file.txt") && re.is_match("/home/user/doc.pdf") && re.is_match("/tmp/sample.log") {
+                    return Err(format!(
+                        "Cannot add exclusion regex '{}': rule is dangerously broad and would match arbitrary files",
+                        value
+                    ));
+                }
+
                 for &t0 in crate::safety::COMPILED_T0_PATHS {
                     if re.is_match(t0) || re.is_match(&format!("{}/test", t0)) {
                         return Err(format!(
@@ -418,7 +433,15 @@ impl Config {
                 }
             }
             ExclusionKind::FilenameRegex => {
-                Regex::new(&value).map_err(|e| format!("Invalid regex '{}': {}", value, e))?;
+                let re = Regex::new(&value).map_err(|e| format!("Invalid regex '{}': {}", value, e))?;
+
+                if re.is_match("file.txt") && re.is_match("document.pdf") && re.is_match("archive.zip") {
+                    return Err(format!(
+                        "Cannot add exclusion regex '{}': rule is dangerously broad and would match arbitrary filenames",
+                        value
+                    ));
+                }
+
                 if !self.exclusions.filename_regex.contains(&value) {
                     self.exclusions.filename_regex.push(value);
                 }
@@ -429,7 +452,7 @@ impl Config {
         self.save_to_user_config()
     }
 
-    /// Remove an existing rule by exact match, classified pattern, or substring
+    /// Remove an existing rule by exact match or classified pattern
     pub fn remove_rule(&mut self, target: &str) -> Result<bool, String> {
         let mut removed = false;
 
@@ -455,18 +478,6 @@ impl Config {
             } else if let Some(pos) = self.exclusions.filename_regex.iter().position(|r| r == &classified) {
                 self.exclusions.filename_regex.remove(pos);
                 removed = true;
-            } else {
-                // 3. Try substring match
-                if let Some(pos) = self.exclusions.path_regex.iter().position(|r| r.contains(target)) {
-                    self.exclusions.path_regex.remove(pos);
-                    removed = true;
-                } else if let Some(pos) = self.exclusions.filename_regex.iter().position(|r| r.contains(target)) {
-                    self.exclusions.filename_regex.remove(pos);
-                    removed = true;
-                } else if let Some(pos) = self.exclusions.system_paths.iter().position(|r| r.contains(target)) {
-                    self.exclusions.system_paths.remove(pos);
-                    removed = true;
-                }
             }
         }
 
@@ -478,15 +489,11 @@ impl Config {
         Ok(removed)
     }
 
-    /// Save current configuration to active configuration (./rinode.toml if present locally, otherwise ~/.config/rinode/config.toml)
+    /// Save current configuration to user configuration (~/.config/rinode/config.toml) atomically
     pub fn save_to_user_config(&self) -> Result<PathBuf, String> {
-        let config_file = if Path::new("rinode.toml").exists() {
-            PathBuf::from("rinode.toml")
-        } else {
-            let dir = config_dir();
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join("config.toml")
-        };
+        let dir = config_dir();
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let config_file = dir.join("config.toml");
 
         let raw = ConfigRaw {
             storage: Some(self.storage.clone()),
@@ -496,7 +503,16 @@ impl Config {
         };
 
         let toml_str = toml::to_string_pretty(&raw).map_err(|e| e.to_string())?;
-        fs::write(&config_file, toml_str).map_err(|e| e.to_string())?;
+
+        // Durable atomic write: write to temp file -> fsync -> rename
+        let tmp_file = dir.join(format!(".config.toml.tmp.{}", std::process::id()));
+        {
+            use std::io::Write;
+            let mut f = fs::File::create(&tmp_file).map_err(|e| e.to_string())?;
+            f.write_all(toml_str.as_bytes()).map_err(|e| e.to_string())?;
+            f.sync_all().map_err(|e| e.to_string())?;
+        }
+        fs::rename(&tmp_file, &config_file).map_err(|e| e.to_string())?;
 
         Ok(config_file)
     }

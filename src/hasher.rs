@@ -5,20 +5,32 @@ use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 const CHUNK_SIZE: usize = 64 * 1024; // 64 KB
 
-/// Deterministic O(1) fingerprint: xxh3_64 over (file_size || head 64KB || tail 64KB).
-/// Stable across builds, platforms, and compiler versions. Takes microseconds
-/// regardless of whether the file is 10 MB or 100 GB.
+fn read_full_chunk(file: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total = 0;
+    while total < buf.len() {
+        match file.read(&mut buf[total..]) {
+            Ok(0) => break, // EOF reached
+            Ok(n) => total += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(total)
+}
+
+/// Deterministic O(1) sampling fingerprint: xxh3_64 over (file_size || head 64KB || tail 64KB).
+/// Stable across builds, platforms, and compiler versions. Robust against short reads and EINTR.
 pub fn compute_quick_fingerprint(path: &Path, file_size: u64) -> Option<String> {
     let mut file = File::open(path).ok()?;
 
     let mut head = [0u8; CHUNK_SIZE];
-    let n_head = file.read(&mut head).ok()?;
+    let n_head = read_full_chunk(&mut file, &mut head).ok()?;
 
     let mut tail = [0u8; CHUNK_SIZE];
     let n_tail = if file_size > CHUNK_SIZE as u64 {
         let seek_pos = file_size.saturating_sub(CHUNK_SIZE as u64);
         if file.seek(SeekFrom::Start(seek_pos)).is_ok() {
-            file.read(&mut tail).ok().unwrap_or(0)
+            read_full_chunk(&mut file, &mut tail).ok().unwrap_or(0)
         } else {
             0
         }

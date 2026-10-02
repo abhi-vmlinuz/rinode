@@ -11,18 +11,22 @@ const AT_SYMLINK_NOFOLLOW: libc::c_int = 0x100;
 const STATX_ALL: libc::c_uint = 0x00000fff;
 const STATX_MNT_ID: libc::c_uint = 0x00001000;
 
-// ioctl FICLONE for CoW reflinks on btrfs/XFS
-const FICLONE: libc::c_ulong = 0x40049409;
+// ioctl FICLONE for CoW reflinks on btrfs/XFS (portable across architectures via libc)
+const FICLONE: libc::c_ulong = libc::FICLONE as libc::c_ulong;
 
 /// Kernel-level atomic "fail if destination exists" flag for renameat2(2).
 /// Using this eliminates the TOCTOU race between `exists()` checks and rename.
 pub const RENAME_NOREPLACE: libc::c_uint = 0x1;
+/// Atomically exchange two paths.
+#[allow(dead_code)]
+pub const RENAME_EXCHANGE: libc::c_uint = 0x2;
 
 #[derive(Debug, Clone)]
 pub struct StatxInfo {
     pub dev_major: u32,
     pub dev_minor: u32,
     pub mnt_id: u64,
+    pub has_mnt_id: bool,
     pub ino: u64,
     pub mode: u16,
     pub uid: u32,
@@ -65,11 +69,13 @@ pub fn statx_path(path: &Path) -> Result<StatxInfo> {
 
     let mode = statxbuf.stx_mode as u16;
     let file_type = mode & (libc::S_IFMT as u16);
+    let has_mnt_id = (statxbuf.stx_mask & STATX_MNT_ID) != 0;
 
     Ok(StatxInfo {
         dev_major: statxbuf.stx_dev_major,
         dev_minor: statxbuf.stx_dev_minor,
         mnt_id: statxbuf.stx_mnt_id,
+        has_mnt_id,
         ino: statxbuf.stx_ino,
         mode,
         uid: statxbuf.stx_uid,
@@ -81,7 +87,7 @@ pub fn statx_path(path: &Path) -> Result<StatxInfo> {
     })
 }
 
-/// Atomic rename using renameat2(2)
+/// Atomic rename using direct renameat2(2) syscall for maximum glibc/musl portability
 pub fn renameat2_path(old_path: &Path, new_path: &Path, flags: libc::c_uint) -> Result<()> {
     let old_c = CString::new(old_path.as_os_str().as_bytes())
         .map_err(|e| Error::new(std::io::ErrorKind::InvalidInput, e))?;
@@ -89,7 +95,8 @@ pub fn renameat2_path(old_path: &Path, new_path: &Path, flags: libc::c_uint) -> 
         .map_err(|e| Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
     let res = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2,
             AT_FDCWD,
             old_c.as_ptr(),
             AT_FDCWD,
@@ -117,4 +124,5 @@ pub fn reflink_clone(src: &File, dst: &File) -> Result<()> {
         Ok(())
     }
 }
+
 

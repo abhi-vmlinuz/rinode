@@ -81,9 +81,10 @@ fn test_sample_path(config: &Config, sample: &str) {
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
+    let is_dir = p.is_dir() || sample.ends_with('/');
 
     println!("Testing path: '{}'", sample);
-    match config.test_path(p, &filename) {
+    match config.test_path(p, &filename, is_dir) {
         Some(reason) => {
             println!("-> MATCHED: Excluded by {}", reason);
             println!("-> Result: Files matching this path will NOT be vaulted (directly unlinked).");

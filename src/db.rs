@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub const SELECT_COLS: &str = "id, dev_major, dev_minor, mnt_id, inode_no, original_path, filename, \
@@ -130,9 +131,9 @@ impl Db {
                             let _ = fs::rename(entry.path(), dest);
                         }
                     }
-                    let _ = fs::remove_dir_all(&legacy_vault);
+                    let _ = fs::remove_dir(&legacy_vault);
                 }
-                let _ = fs::remove_dir_all(&legacy_dir);
+                let _ = fs::remove_dir(&legacy_dir);
             }
         }
 
@@ -150,7 +151,7 @@ impl Db {
                             let _ = fs::rename(entry.path(), dest);
                         }
                     }
-                    let _ = fs::remove_dir_all(&legacy_vault);
+                    let _ = fs::remove_dir(&legacy_vault);
                 }
             }
         }
@@ -167,10 +168,42 @@ impl Db {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
 
+        let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);
         let db = Db { conn };
         db.create_tables()?;
-        db.migrate_legacy_db_paths().ok();
+        if version == 0 {
+            db.migrate_legacy_db_paths().ok();
+            let _ = db.conn.execute_batch("PRAGMA user_version = 1;");
+        }
+        db.reconcile_pending_entries().ok();
         Ok(db)
+    }
+
+    pub fn reconcile_pending_entries(&self) -> Result<()> {
+        let mut stmt = self.conn.prepare("SELECT id, vault_path, is_directory FROM entries WHERE status = 'PENDING'")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?))
+        })?;
+
+        let mut confirmed = Vec::new();
+        let mut aborted = Vec::new();
+
+        for r in rows.flatten() {
+            let (id, vault_path, _) = r;
+            if !vault_path.is_empty() && resolve_storage_path(&vault_path).is_some() {
+                confirmed.push(id);
+            } else {
+                aborted.push(id);
+            }
+        }
+
+        for id in confirmed {
+            let _ = self.conn.execute("UPDATE entries SET status = 'PRESERVED' WHERE id = ?1", params![id]);
+        }
+        for id in aborted {
+            let _ = self.conn.execute("DELETE FROM entries WHERE id = ?1", params![id]);
+        }
+        Ok(())
     }
 
     fn migrate_legacy_db_paths(&self) -> Result<()> {
@@ -424,17 +457,28 @@ impl Db {
         }
     }
 
+    pub fn escape_like(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 8);
+        for c in s.chars() {
+            if c == '%' || c == '_' || c == '\\' {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    }
+
     pub fn find_by_filename(&self, name: &str) -> Result<Vec<EntryRecord>> {
-        // Finding 6: strict match only. `%name` falsely matched `sample_doc.txt`
-        // when searching `doc.txt`. Require exact filename, exact path, or
-        // path-suffix with directory separator (`%/doc.txt`).
+        // Strict match: exact filename, exact path, or path-suffix with directory separator
+        // with SQL wildcards properly escaped.
+        let escaped_name = Self::escape_like(name);
+        let search_pattern = format!("%/{}", escaped_name);
         let sql = format!(
-            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path = ?1 OR original_path LIKE ?2) \
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND (filename = ?1 OR original_path = ?1 OR original_path LIKE ?2 ESCAPE '\\') \
              ORDER BY deleted_at DESC",
             SELECT_COLS
         );
 
-        let search_pattern = format!("%/{}", name);
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![name, search_pattern], Self::row_to_record)?;
 
@@ -454,6 +498,21 @@ impl Db {
         Ok(())
     }
 
+    pub fn confirm_entry_preserved(
+        &self,
+        id: i64,
+        vault_path: &str,
+        link_type: &str,
+        file_size: u64,
+        quick_fingerprint: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entries SET status = 'PRESERVED', vault_path = ?1, link_type = ?2, file_size = ?3, quick_fingerprint = ?4 WHERE id = ?5",
+            params![vault_path, link_type, file_size, quick_fingerprint, id],
+        )?;
+        Ok(())
+    }
+
     pub fn mark_purged(&self, id: i64) -> Result<()> {
         let now_str = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -463,21 +522,29 @@ impl Db {
         Ok(())
     }
 
-    pub fn purge_entry(&self, entry: &EntryRecord) -> Result<()> {
+    pub fn purge_entry(&self, entry: &EntryRecord) -> std::io::Result<()> {
         if let Some(path) = resolve_storage_path(&entry.vault_path) {
-            if entry.is_directory {
-                std::fs::remove_dir_all(&path).ok();
-            } else {
-                std::fs::remove_file(&path).ok();
+            if path.exists() {
+                if entry.is_directory {
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+                    std::fs::remove_dir_all(&path)?;
+                } else {
+                    std::fs::remove_file(&path)?;
+                }
             }
         }
-        self.mark_purged(entry.id)
+        if !entry.vault_path.is_empty() {
+            let meta_path = std::path::PathBuf::from(format!("{}.meta", entry.vault_path));
+            let _ = std::fs::remove_file(meta_path);
+        }
+        self.mark_purged(entry.id).map_err(std::io::Error::other)?;
+        Ok(())
     }
 
     pub fn get_expired(&self, days: u32) -> Result<Vec<EntryRecord>> {
         let cutoff = Utc::now() - chrono::Duration::days(days as i64);
         let sql = format!(
-            "SELECT {} FROM entries WHERE status = 'PRESERVED' AND deleted_at < ?1 ORDER BY deleted_at ASC",
+            "SELECT {} FROM entries WHERE (status = 'PRESERVED' OR (status = 'RESTORED' AND vault_path != '')) AND deleted_at < ?1 ORDER BY deleted_at ASC",
             SELECT_COLS
         );
 
@@ -491,12 +558,12 @@ impl Db {
         Ok(entries)
     }
 
-    /// Total bytes currently held in PRESERVED status (for quota enforcement).
+    /// Total bytes currently held in PRESERVED status or retained in vault (for quota enforcement).
     pub fn total_preserved_bytes(&self) -> Result<u64> {
         let v: Option<i64> = self
             .conn
             .query_row(
-                "SELECT COALESCE(SUM(file_size), 0) FROM entries WHERE status = 'PRESERVED'",
+                "SELECT COALESCE(SUM(file_size), 0) FROM entries WHERE status = 'PRESERVED' OR (status = 'RESTORED' AND vault_path != '')",
                 [],
                 |row| row.get(0),
             )
@@ -504,10 +571,10 @@ impl Db {
         Ok(v.unwrap_or(0).max(0) as u64)
     }
 
-    /// Oldest PRESERVED entries first (for oldest-first quota pruning).
+    /// Oldest PRESERVED / retained entries first (for oldest-first quota pruning).
     pub fn list_preserved_oldest(&self) -> Result<Vec<EntryRecord>> {
         let sql = format!(
-            "SELECT {} FROM entries WHERE status = 'PRESERVED' ORDER BY deleted_at ASC, id ASC",
+            "SELECT {} FROM entries WHERE status = 'PRESERVED' OR (status = 'RESTORED' AND vault_path != '') ORDER BY deleted_at ASC, id ASC",
             SELECT_COLS
         );
         let mut stmt = self.conn.prepare(&sql)?;

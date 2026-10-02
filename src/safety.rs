@@ -155,6 +155,16 @@ fn is_t2_sensitive(path: &Path, filename: &str, mode: u16) -> bool {
     false
 }
 
+pub fn stricter_tier(a: SafetyTier, b: SafetyTier) -> SafetyTier {
+    match (a, b) {
+        (SafetyTier::T0Refuse, _) | (_, SafetyTier::T0Refuse) => SafetyTier::T0Refuse,
+        (SafetyTier::T1ProtectedRoot, _) | (_, SafetyTier::T1ProtectedRoot) => SafetyTier::T1ProtectedRoot,
+        (SafetyTier::T2Sensitive, _) | (_, SafetyTier::T2Sensitive) => SafetyTier::T2Sensitive,
+        (SafetyTier::T3SemiProtected, _) | (_, SafetyTier::T3SemiProtected) => SafetyTier::T3SemiProtected,
+        _ => SafetyTier::Standard,
+    }
+}
+
 fn classify_path(path: &Path, config: &Config) -> Result<SafetyTier> {
     let s = path.to_string_lossy();
 
@@ -181,6 +191,16 @@ fn classify_path(path: &Path, config: &Config) -> Result<SafetyTier> {
     // 2. T1 check
     for t1 in COMPILED_T1_PATHS {
         if s == *t1 || s.starts_with(&format!("{}/", t1)) {
+            return Ok(SafetyTier::T1ProtectedRoot);
+        }
+    }
+
+    // High-level system mounts and directories themselves are T1
+    if s == "/home" || s == "/mnt" || s == "/media" {
+        return Ok(SafetyTier::T1ProtectedRoot);
+    }
+    if let Some(h) = crate::config::home_dir() {
+        if path == h || s == h.to_string_lossy() {
             return Ok(SafetyTier::T1ProtectedRoot);
         }
     }
@@ -223,11 +243,20 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         return Err(Error::other("refusing to remove '.' or '..' directory entry"));
     }
 
-    // 2. Lexical normalization against CWD
-    let abs_path = if raw_path.is_absolute() {
-        raw_path.to_path_buf()
+    // Strip trailing slashes so symlink metadata does not inadvertently dereference target
+    let clean_raw = if trimmed.is_empty() && s.starts_with('/') {
+        PathBuf::from("/")
+    } else if trimmed.is_empty() {
+        PathBuf::from(".")
     } else {
-        std::env::current_dir()?.join(raw_path)
+        PathBuf::from(trimmed)
+    };
+
+    // 2. Lexical normalization against CWD
+    let abs_path = if clean_raw.is_absolute() {
+        clean_raw.clone()
+    } else {
+        std::env::current_dir()?.join(&clean_raw)
     };
     let normalized = normalize_lexical(&abs_path);
     let norm_str = normalized.to_string_lossy();
@@ -235,7 +264,7 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
     // 3. Root check
     if normalized == Path::new("/") || norm_str == "/" {
         return Ok(SafetyVerdict {
-            raw_path: raw_path.to_path_buf(),
+            raw_path: clean_raw,
             normalized_path: normalized,
             canonical_path: Some(PathBuf::from("/")),
             tier: SafetyTier::T0Refuse,
@@ -247,13 +276,29 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         });
     }
 
-    // 4. Self-protection check
+    // 4. Self-protection check: storage, database, policy, and their ancestors
+    let base_data = crate::config::base_data_dir().join("rinode");
+    if normalized == base_data || normalized.starts_with(&base_data) || (base_data.starts_with(&normalized) && normalized != Path::new("/")) {
+        return Ok(SafetyVerdict {
+            raw_path: clean_raw,
+            normalized_path: normalized,
+            canonical_path: None,
+            tier: SafetyTier::T0Refuse,
+            is_mount_root: false,
+            is_dir: true,
+            size: 0,
+            is_symlink: false,
+            reason: "rinode storage, database, or ancestor directory (self-protection)",
+        });
+    }
+
     let filename = normalized
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
 
     if filename == ".rinode-storage"
+        || filename.starts_with(".rinode-storage-")
         || filename == ".rinode-vault"
         || norm_str.ends_with("/.rinode-storage")
         || norm_str.ends_with("/.rinode-vault")
@@ -261,7 +306,7 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         || norm_str.contains("/.rinode-vault/")
     {
         return Ok(SafetyVerdict {
-            raw_path: raw_path.to_path_buf(),
+            raw_path: clean_raw,
             normalized_path: normalized,
             canonical_path: None,
             tier: SafetyTier::T0Refuse,
@@ -275,7 +320,7 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
 
     if filename == "rinode.db" || norm_str.ends_with("/rinode.db") {
         return Ok(SafetyVerdict {
-            raw_path: raw_path.to_path_buf(),
+            raw_path: clean_raw,
             normalized_path: normalized,
             canonical_path: None,
             tier: SafetyTier::T0Refuse,
@@ -289,7 +334,7 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
 
     if filename == "rinode.toml" || filename == "policy.toml" || norm_str.starts_with("/etc/rinode") {
         return Ok(SafetyVerdict {
-            raw_path: raw_path.to_path_buf(),
+            raw_path: clean_raw,
             normalized_path: normalized,
             canonical_path: None,
             tier: SafetyTier::T0Refuse,
@@ -302,7 +347,7 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
     }
 
     // 5. Inspect symlinks
-    let sym_meta = fs::symlink_metadata(&normalized).or_else(|_| fs::symlink_metadata(raw_path));
+    let sym_meta = fs::symlink_metadata(&normalized).or_else(|_| fs::symlink_metadata(&clean_raw));
     let is_symlink = sym_meta.as_ref().map(|m| m.is_symlink()).unwrap_or(false);
     let sym_target_tier = if is_symlink {
         if let Ok(target) = fs::read_link(&normalized) {
@@ -326,7 +371,11 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         Ok(info) => {
             let is_mnt = if let Some(parent) = normalized.parent() {
                 if let Ok(p_info) = statx_path(parent) {
-                    info.mnt_id != p_info.mnt_id
+                    if info.has_mnt_id && p_info.has_mnt_id {
+                        info.mnt_id != p_info.mnt_id
+                    } else {
+                        info.dev_minor != p_info.dev_minor || info.dev_major != p_info.dev_major
+                    }
                 } else {
                     false
                 }
@@ -338,17 +387,29 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         Err(_) => (false, 0, 0, false),
     };
 
-    // 7. Base classification
+    // 7. Canonical path and symlinked ancestor evaluation (e.g. ~/e/hosts -> /etc/hosts)
+    let canonical = normalized.canonicalize().ok().or_else(|| {
+        if let Some(parent) = normalized.parent() {
+            if let Ok(canon_parent) = parent.canonicalize() {
+                if let Some(file_name) = normalized.file_name() {
+                    return Some(canon_parent.join(file_name));
+                }
+            }
+        }
+        None
+    });
+
+    let canonical_tier = if let Some(ref canon) = canonical {
+        classify_path(canon, config)?
+    } else {
+        SafetyTier::Standard
+    };
+
+    // 8. Base classification & combining strictest tier
     let path_tier = classify_path(&normalized, config)?;
 
-    // Strictest tier between path and symlink target wins
-    let mut effective_tier = match (path_tier, sym_target_tier) {
-        (SafetyTier::T0Refuse, _) | (_, SafetyTier::T0Refuse) => SafetyTier::T0Refuse,
-        (SafetyTier::T1ProtectedRoot, _) | (_, SafetyTier::T1ProtectedRoot) => SafetyTier::T1ProtectedRoot,
-        (SafetyTier::T2Sensitive, _) | (_, SafetyTier::T2Sensitive) => SafetyTier::T2Sensitive,
-        (SafetyTier::T3SemiProtected, _) | (_, SafetyTier::T3SemiProtected) => SafetyTier::T3SemiProtected,
-        _ => SafetyTier::Standard,
-    };
+    let mut effective_tier = stricter_tier(path_tier, sym_target_tier);
+    effective_tier = stricter_tier(effective_tier, canonical_tier);
 
     // Mount roots default to T1
     if is_mount_root && effective_tier == SafetyTier::Standard {
@@ -360,10 +421,8 @@ pub fn resolve_checked(raw_path: &Path, config: &Config) -> Result<SafetyVerdict
         effective_tier = SafetyTier::T2Sensitive;
     }
 
-    let canonical = normalized.canonicalize().ok();
-
     Ok(SafetyVerdict {
-        raw_path: raw_path.to_path_buf(),
+        raw_path: clean_raw,
         normalized_path: normalized,
         canonical_path: canonical,
         tier: effective_tier,
@@ -819,5 +878,59 @@ mod tests {
             ..Default::default()
         };
         assert!(verify_safety(&verdicts, &f_perm, &cfg, None).is_ok());
+    }
+
+    #[test]
+    fn test_symlinked_ancestor_protection() {
+        let temp_dir = std::env::temp_dir().join(format!("rinode_symlink_test_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let symlink_path = temp_dir.join("etc_link");
+        let _ = std::os::unix::fs::symlink("/etc", &symlink_path);
+
+        let cfg = Config::default();
+        let target = symlink_path.join("hosts");
+        let verdict = resolve_checked(&target, &cfg).unwrap();
+        assert_eq!(verdict.tier, SafetyTier::T1ProtectedRoot);
+
+        let _ = fs::remove_file(&symlink_path);
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_symlinked_directory_trailing_slash() {
+        let temp_dir = std::env::temp_dir().join(format!("rinode_slash_test_{}", std::process::id()));
+        let real_target = temp_dir.join("target_dir");
+        fs::create_dir_all(&real_target).unwrap();
+        let symlink_path = temp_dir.join("link_to_dir");
+        let _ = std::os::unix::fs::symlink(&real_target, &symlink_path);
+
+        let cfg = Config::default();
+        let slash_path = PathBuf::from(format!("{}/", symlink_path.display()));
+        let verdict = resolve_checked(&slash_path, &cfg).unwrap();
+        assert!(verdict.is_symlink, "Trailing slash must not bypass is_symlink detection");
+
+        let _ = fs::remove_file(&symlink_path);
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_home_and_mounts_t1() {
+        let cfg = Config::default();
+        let v_home = resolve_checked(Path::new("/home"), &cfg).unwrap();
+        assert!(v_home.tier == SafetyTier::T1ProtectedRoot || v_home.tier == SafetyTier::T0Refuse);
+
+        let v_mnt = resolve_checked(Path::new("/mnt"), &cfg).unwrap();
+        assert_eq!(v_mnt.tier, SafetyTier::T1ProtectedRoot);
+
+        let v_media = resolve_checked(Path::new("/media"), &cfg).unwrap();
+        assert_eq!(v_media.tier, SafetyTier::T1ProtectedRoot);
+
+        if let Some(h) = crate::config::home_dir() {
+            let v_user_home = resolve_checked(&h, &cfg).unwrap();
+            assert!(v_user_home.tier == SafetyTier::T1ProtectedRoot || v_user_home.tier == SafetyTier::T0Refuse);
+
+            let v_file = resolve_checked(&h.join("regular_file.txt"), &cfg).unwrap();
+            assert_eq!(v_file.tier, SafetyTier::Standard);
+        }
     }
 }
