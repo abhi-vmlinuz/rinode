@@ -1,4 +1,4 @@
-.TH RINODE 1 "September 2026" "rinode 0.1.1" "User Commands"
+.TH RINODE 1 "October 2026" "rinode 0.1.2" "User Commands"
 .SH NAME
 rinode \- zero-copy deleted file tracking, metadata audit index, and instant restoration
 .SH SYNOPSIS
@@ -6,7 +6,7 @@ rinode \- zero-copy deleted file tracking, metadata audit index, and instant res
 [\fICOMMAND\fR] [\fIOPTIONS\fR]
 .br
 .B rinode rm
-[\fB\-p\fR|\fB\-\-no\-storage\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-\-allow\-protected\fR] [\fB\-\-no\-preserve\-root\fR] [\fB\-\-preserve\-root\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
+[\fB\-p\fR|\fB\-\-no\-storage\fR|\fB\-\-no\-vault\fR|\fB\-\-permanent\fR] [\fB\-f\fR|\fB\-\-force\fR] [\fB\-\-allow\-protected\fR] [\fB\-\-no\-preserve\-root\fR] [\fB\-\-preserve\-root\fR] [\fB\-r\fR|\fB\-R\fR|\fB\-\-recursive\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-i\fR|\fB\-\-interactive\fR] [\fB\-I\fR] [\fB\-\-one\-file\-system\fR] [\fB\-d\fR|\fB\-\-dir\fR] \fIPATH\fR...
 .br
 .B rinode ls
 [\fB\-n\fR \fILIMIT\fR] [\fB\-a\fR|\fB\-\-all\fR]
@@ -121,6 +121,12 @@ Print explanation of each deleted file.
 .TP
 .BR \-i ", " \-\-interactive
 Prompt before every removal (POSIX compatibility).
+.TP
+.B \-I
+Prompt once before removing more than three files, or when removing recursively. Less intrusive than \fB\-i\fR while still protecting against large accidental removals (GNU rm compatibility).
+.TP
+.B \-\-one\-file\-system
+When removing a directory hierarchy recursively, skip any directory that is on a different filesystem mount than the specified argument (GNU rm compatibility).
 .TP
 .BR \-d ", " \-\-dir
 Remove empty directories (POSIX compatibility).
