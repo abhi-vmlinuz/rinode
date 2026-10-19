@@ -1,4 +1,4 @@
-.TH RINODE 1 "October 2026" "rinode 0.1.2" "User Commands"
+.TH RINODE 1 "October 2026" "rinode 0.1.3" "User Commands"
 .SH NAME
 rinode \- zero-copy deleted file tracking, metadata audit index, and instant restoration
 .SH SYNOPSIS
@@ -56,9 +56,9 @@ Uses \fBFICLONE\fR (Linux 4.5+) for zero-copy reflink snapshots on Copy-on-Write
 Launch the interactive dual-pane terminal dashboard.
 Left pane displays a navigable table of preserved files; right pane displays entry details and inode provenance (upper) alongside a restore history audit table (lower).
 Use \fBTab\fR, \fBh\fR, or \fBl\fR (or arrow keys) to switch focus between preserved files and restore history.
-Press \fBEnter\fR on a preserved entry to open the action menu (Restore, Reflink Fork, Inspect, Purge, Copy Path) or on a restored entry to inspect metadata.
+Press \fBEnter\fR on a preserved entry to open the action menu (Restore, Restore keep copy, Preview content, Open externally, Diff against current, Metadata, Delete permanently, Copy Path) or on a restored entry to inspect metadata.
+Press \fBp\fR to open content preview directly, \fBd\fR to diff against current file on disk, \fBo\fR to open with default application, or \fBc\fR to copy path.
 Press \fBe\fR to open the active exclusion rules modal.
-Press \fB/\fR to search or filter the list.
 Press \fBq\fR or \fBEsc\fR to exit.
 .TP
 .B rm \fIPATH\fR...
