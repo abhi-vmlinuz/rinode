@@ -28,6 +28,8 @@ enum ViewMode {
     InspectModal,
     ExclusionModal,
     ConfirmDeleteModal,
+    PreviewModal,
+    DiffModal,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -131,6 +133,11 @@ fn main_loop<B: ratatui::backend::Backend>(
     let mut action_index: usize = 0;
     let mut status_message: Option<String> = None;
     let mut last_data_version = db.get_data_version().unwrap_or(0);
+    let mut modal_scroll: usize = 0;
+    let mut preview_title: String = String::new();
+    let mut preview_lines: Vec<Line<'static>> = Vec::new();
+    let mut diff_title: String = String::new();
+    let mut diff_lines: Vec<Line<'static>> = Vec::new();
 
     loop {
         // Auto-refresh: Detect database changes committed by external processes/terminals
@@ -145,7 +152,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                 entries = new_entries;
                 if entries.is_empty() {
                     table_state.select(None);
-                    if view_mode == ViewMode::ActionMenu || view_mode == ViewMode::InspectModal {
+                    if view_mode != ViewMode::Browsing {
                         view_mode = ViewMode::Browsing;
                     }
                 } else if let Some(target_id) = prev_preserved_id {
@@ -721,8 +728,10 @@ fn main_loop<B: ratatui::backend::Backend>(
                             Span::styled("|  [↑/↓/j/k] Navigate  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [Enter] Menu  ", Style::default().fg(theme.value_fg)),
                             Span::styled("|  [r] Restore  ", Style::default().fg(theme.status_restored).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [p] Preview  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [d] Diff  ", Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD)),
                             Span::styled("|  [x] Delete  ", Style::default().fg(theme.status_purged).add_modifier(Modifier::BOLD)),
-                            Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+                            Span::styled("|  [t] Theme  ", Style::default().fg(theme.secondary)),
                             Span::styled("|  [e] Rules  ", Style::default().fg(theme.header_fg)),
                             Span::styled("|  [q] Quit", Style::default().fg(theme.warning)),
                             status_span,
@@ -740,7 +749,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     }
                 }
                 ViewMode::ActionMenu => Line::from(vec![
-                    Span::styled("[↑/↓/1-5] Choose  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("[↑/↓/1-8] Choose  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                     Span::styled("|  [Enter] Confirm  ", Style::default().fg(theme.value_fg)),
                     Span::styled("|  [Esc/q] Close", Style::default().fg(theme.warning)),
                     status_span,
@@ -756,6 +765,21 @@ fn main_loop<B: ratatui::backend::Backend>(
                     Span::styled("|  [n/Esc/q] Cancel", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                     status_span,
                 ]),
+                ViewMode::PreviewModal => Line::from(vec![
+                    Span::styled("[↑/↓/j/k] Scroll  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [PgUp/PgDn] Page  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [g/G] Top/Bottom  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [o] Open in app  ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [Esc/q/Enter] Close", Style::default().fg(theme.warning)),
+                    status_span,
+                ]),
+                ViewMode::DiffModal => Line::from(vec![
+                    Span::styled("[↑/↓/j/k] Scroll  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("|  [PgUp/PgDn] Page  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [g/G] Top/Bottom  ", Style::default().fg(theme.value_fg)),
+                    Span::styled("|  [Esc/q/Enter] Close", Style::default().fg(theme.warning)),
+                    status_span,
+                ]),
             };
 
             let footer_widget = Paragraph::new(vec![footer_nav]);
@@ -764,27 +788,35 @@ fn main_loop<B: ratatui::backend::Backend>(
             // 4. ACTION SUBMENU (Floating Modal)
             if view_mode == ViewMode::ActionMenu {
                 if let Some(entry) = entries.get(selected_idx) {
-                    let popup_area = centered_rect(50, 40, size);
+                    let popup_area = centered_rect(58, 56, size);
                     f.render_widget(Clear, popup_area);
 
+                    let modal_style = match theme.bg {
+                        Some(bg) => Style::default().bg(bg),
+                        None => Style::default(),
+                    };
+                    if let Some(bg) = theme.bg {
+                        f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                    }
+
                     let title = format!(" Actions: {} (ID: {}) ", entry.filename, entry.id);
-                    let mut modal_block = Block::default()
+                    let modal_block = Block::default()
                         .title(Span::styled(title, Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.active_border));
-
-                    if let Some(bg_color) = theme.bg {
-                        modal_block = modal_block.style(Style::default().bg(bg_color));
-                    }
+                        .border_style(Style::default().fg(theme.active_border))
+                        .style(modal_style);
 
                     let options = [
                         "1. Restore",
                         "2. Restore (keep copy)",
-                        "3. Metadata",
-                        "4. Delete permanently",
-                        "5. Copy path",
+                        "3. Preview / Inspect content",
+                        "4. Open in default app (xdg-open)",
+                        "5. Diff against current file",
+                        "6. Metadata",
+                        "7. Delete permanently",
+                        "8. Copy path",
                     ];
 
                     let mut menu_lines = vec![Line::from("")];
@@ -803,7 +835,7 @@ fn main_loop<B: ratatui::backend::Backend>(
                     }
                     menu_lines.push(Line::from(""));
                     menu_lines.push(Line::from(Span::styled(
-                        "  [1-5] Choose  |  [Esc] Close",
+                        "  [1-8] Choose  |  [Esc] Close",
                         Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
                     )));
 
@@ -822,7 +854,15 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let popup_area = centered_rect(65, 60, size);
                     f.render_widget(Clear, popup_area);
 
-                    let mut modal_block = Block::default()
+                    let modal_style = match theme.bg {
+                        Some(bg) => Style::default().bg(bg),
+                        None => Style::default(),
+                    };
+                    if let Some(bg) = theme.bg {
+                        f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                    }
+
+                    let modal_block = Block::default()
                         .title(Span::styled(
                             format!(" Metadata: {} ", entry.filename),
                             Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD),
@@ -830,11 +870,8 @@ fn main_loop<B: ratatui::backend::Backend>(
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.active_border));
-
-                    if let Some(bg_color) = theme.bg {
-                        modal_block = modal_block.style(Style::default().bg(bg_color));
-                    }
+                        .border_style(Style::default().fg(theme.active_border))
+                        .style(modal_style);
 
                     let status_color = match entry.status.as_str() {
                         "RESTORED" => theme.status_restored,
@@ -941,16 +978,21 @@ fn main_loop<B: ratatui::backend::Backend>(
                 let popup_area = centered_rect(65, 60, size);
                 f.render_widget(Clear, popup_area);
 
-                let mut modal_block = Block::default()
+                let modal_style = match theme.bg {
+                    Some(bg) => Style::default().bg(bg),
+                    None => Style::default(),
+                };
+                if let Some(bg) = theme.bg {
+                    f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                }
+
+                let modal_block = Block::default()
                     .title(Span::styled(" Exclusion Rules ", Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.active_border));
-
-                if let Some(bg_color) = theme.bg {
-                    modal_block = modal_block.style(Style::default().bg(bg_color));
-                }
+                    .border_style(Style::default().fg(theme.active_border))
+                    .style(modal_style);
 
                 let mut lines = vec![
                     Line::from(""),
@@ -994,17 +1036,22 @@ fn main_loop<B: ratatui::backend::Backend>(
                     let popup_area = centered_rect(55, 30, size);
                     f.render_widget(Clear, popup_area);
 
+                    let modal_style = match theme.bg {
+                        Some(bg) => Style::default().bg(bg),
+                        None => Style::default(),
+                    };
+                    if let Some(bg) = theme.bg {
+                        f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                    }
+
                     let title = format!(" Permanently Delete: {}? ", entry.filename);
-                    let mut modal_block = Block::default()
+                    let modal_block = Block::default()
                         .title(Span::styled(title, Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)))
                         .title_alignment(Alignment::Center)
                         .borders(Borders::ALL)
                         .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.warning));
-
-                    if let Some(bg_color) = theme.bg {
-                        modal_block = modal_block.style(Style::default().bg(bg_color));
-                    }
+                        .border_style(Style::default().fg(theme.warning))
+                        .style(modal_style);
 
                     let lines = vec![
                         Line::from(""),
@@ -1026,6 +1073,132 @@ fn main_loop<B: ratatui::backend::Backend>(
 
                     let del_widget = Paragraph::new(lines).block(modal_block);
                     f.render_widget(del_widget, popup_area);
+                }
+            }
+
+            // 8. PREVIEW MODAL
+            if view_mode == ViewMode::PreviewModal {
+                let popup_area = centered_rect(82, 80, size);
+                f.render_widget(Clear, popup_area);
+
+                let modal_style = match theme.bg {
+                    Some(bg) => Style::default().bg(bg),
+                    None => Style::default(),
+                };
+                if let Some(bg) = theme.bg {
+                    f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                }
+
+                let title = format!(" {} ", preview_title);
+                let modal_block = Block::default()
+                    .title(Span::styled(title, Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
+                    .title_alignment(Alignment::Center)
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.active_border))
+                    .style(modal_style);
+
+                let inner_area = modal_block.inner(popup_area);
+                f.render_widget(modal_block, popup_area);
+
+                let visible_height = inner_area.height as usize;
+                let inner_width = inner_area.width as usize;
+                let max_scroll = preview_lines.len().saturating_sub(visible_height);
+                let effective_scroll = modal_scroll.min(max_scroll);
+
+                let mut rendered_lines = Vec::with_capacity(visible_height);
+                for line in preview_lines.iter().skip(effective_scroll).take(visible_height) {
+                    let line_w = line.width();
+                    if line_w < inner_width {
+                        let mut spans = line.spans.clone();
+                        spans.push(Span::styled(" ".repeat(inner_width - line_w), modal_style));
+                        rendered_lines.push(Line::from(spans));
+                    } else {
+                        rendered_lines.push(line.clone());
+                    }
+                }
+                while rendered_lines.len() < visible_height {
+                    rendered_lines.push(Line::from(Span::styled(" ".repeat(inner_width), modal_style)));
+                }
+
+                let preview_widget = Paragraph::new(rendered_lines)
+                    .style(modal_style);
+                f.render_widget(preview_widget, inner_area);
+
+                if preview_lines.len() > visible_height {
+                    let mut scrollbar_state = ScrollbarState::new(max_scroll).position(effective_scroll);
+                    f.render_stateful_widget(
+                        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(Some("▲"))
+                            .end_symbol(Some("▼"))
+                            .track_symbol(Some("│"))
+                            .thumb_symbol("█"),
+                        popup_area,
+                        &mut scrollbar_state,
+                    );
+                }
+            }
+
+            // 9. DIFF MODAL
+            if view_mode == ViewMode::DiffModal {
+                let popup_area = centered_rect(82, 80, size);
+                f.render_widget(Clear, popup_area);
+
+                let modal_style = match theme.bg {
+                    Some(bg) => Style::default().bg(bg),
+                    None => Style::default(),
+                };
+                if let Some(bg) = theme.bg {
+                    f.render_widget(Block::default().style(Style::default().bg(bg)), popup_area);
+                }
+
+                let title = format!(" {} ", diff_title);
+                let modal_block = Block::default()
+                    .title(Span::styled(title, Style::default().fg(theme.active_title).add_modifier(Modifier::BOLD)))
+                    .title_alignment(Alignment::Center)
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.active_border))
+                    .style(modal_style);
+
+                let inner_area = modal_block.inner(popup_area);
+                f.render_widget(modal_block, popup_area);
+
+                let visible_height = inner_area.height as usize;
+                let inner_width = inner_area.width as usize;
+                let max_scroll = diff_lines.len().saturating_sub(visible_height);
+                let effective_scroll = modal_scroll.min(max_scroll);
+
+                let mut rendered_lines = Vec::with_capacity(visible_height);
+                for line in diff_lines.iter().skip(effective_scroll).take(visible_height) {
+                    let line_w = line.width();
+                    if line_w < inner_width {
+                        let mut spans = line.spans.clone();
+                        spans.push(Span::styled(" ".repeat(inner_width - line_w), modal_style));
+                        rendered_lines.push(Line::from(spans));
+                    } else {
+                        rendered_lines.push(line.clone());
+                    }
+                }
+                while rendered_lines.len() < visible_height {
+                    rendered_lines.push(Line::from(Span::styled(" ".repeat(inner_width), modal_style)));
+                }
+
+                let diff_widget = Paragraph::new(rendered_lines)
+                    .style(modal_style);
+                f.render_widget(diff_widget, inner_area);
+
+                if diff_lines.len() > visible_height {
+                    let mut scrollbar_state = ScrollbarState::new(max_scroll).position(effective_scroll);
+                    f.render_stateful_widget(
+                        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(Some("▲"))
+                            .end_symbol(Some("▼"))
+                            .track_symbol(Some("│"))
+                            .thumb_symbol("█"),
+                        popup_area,
+                        &mut scrollbar_state,
+                    );
                 }
             }
         })?;
@@ -1236,6 +1409,75 @@ fn main_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                         }
+                        KeyCode::Char('p') if active_pane == ActivePane::Deleted => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    let theme = &THEMES[theme_idx];
+                                    let content = crate::preview::generate_preview(entry, theme);
+                                    preview_title = format!("Preview: {} ({})", entry.filename, content.category);
+                                    preview_lines = content.lines;
+                                    modal_scroll = 0;
+                                    view_mode = ViewMode::PreviewModal;
+                                }
+                            }
+                        }
+                        KeyCode::Char('o') if active_pane == ActivePane::Deleted => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    let opener = std::env::var("VIEWER").unwrap_or_else(|_| "xdg-open".into());
+                                    match std::process::Command::new(&opener)
+                                        .arg(&entry.vault_path)
+                                        .stdin(std::process::Stdio::null())
+                                        .stdout(std::process::Stdio::null())
+                                        .stderr(std::process::Stdio::null())
+                                        .spawn()
+                                    {
+                                        Ok(_) => {
+                                            status_message = Some(format!("Launched '{}' via {}", entry.filename, opener));
+                                        }
+                                        Err(e) => {
+                                            status_message = Some(format!("Failed to open: {}", e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('d') if active_pane == ActivePane::Deleted => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    let theme = &THEMES[theme_idx];
+                                    match crate::preview::generate_diff(entry, theme) {
+                                        Ok(lines) => {
+                                            diff_title = format!("Diff: {} (storage vs current)", entry.filename);
+                                            diff_lines = lines;
+                                            modal_scroll = 0;
+                                            view_mode = ViewMode::DiffModal;
+                                        }
+                                        Err(msg) => {
+                                            status_message = Some(msg);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('m') => {
+                            let has_item = match active_pane {
+                                ActivePane::Deleted => table_state.selected().is_some() && !entries.is_empty(),
+                                ActivePane::History => history_table_state.selected().is_some() && !history_entries.is_empty(),
+                            };
+                            if has_item {
+                                view_mode = ViewMode::InspectModal;
+                            }
+                        }
+                        KeyCode::Char('c') if active_pane == ActivePane::Deleted => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    let b64 = base64_encode(&entry.original_path);
+                                    let _ = execute!(std::io::stdout(), crossterm::style::Print(format!("\x1b]52;c;{}\x07", b64)));
+                                    status_message = Some(format!("Copied path to clipboard: {}", entry.original_path));
+                                }
+                            }
+                        }
                         KeyCode::Char('x') if active_pane == ActivePane::Deleted && !entries.is_empty() => {
                             view_mode = ViewMode::ConfirmDeleteModal;
                         }
@@ -1250,17 +1492,49 @@ fn main_loop<B: ratatui::backend::Backend>(
                             view_mode = ViewMode::Browsing;
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            action_index = (action_index + 1).min(4);
+                            action_index = (action_index + 1).min(7);
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             action_index = action_index.saturating_sub(1);
                         }
-                        KeyCode::Char(c @ '1'..='5') => {
+                        KeyCode::Char(c @ '1'..='8') => {
                             action_index = (c as usize) - ('1' as usize);
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
+                            let theme = &THEMES[theme_idx];
+                            execute_action(
+                                action_index,
+                                &mut entries,
+                                &mut table_state,
+                                &mut history_entries,
+                                &mut history_table_state,
+                                &mut view_mode,
+                                &mut status_message,
+                                &mut modal_scroll,
+                                &mut preview_title,
+                                &mut preview_lines,
+                                &mut diff_title,
+                                &mut diff_lines,
+                                theme,
+                                db,
+                            );
                         }
                         KeyCode::Enter => {
-                            execute_action(action_index, &mut entries, &mut table_state, &mut history_entries, &mut history_table_state, &mut view_mode, &mut status_message, db);
+                            let theme = &THEMES[theme_idx];
+                            execute_action(
+                                action_index,
+                                &mut entries,
+                                &mut table_state,
+                                &mut history_entries,
+                                &mut history_table_state,
+                                &mut view_mode,
+                                &mut status_message,
+                                &mut modal_scroll,
+                                &mut preview_title,
+                                &mut preview_lines,
+                                &mut diff_title,
+                                &mut diff_lines,
+                                theme,
+                                db,
+                            );
                         }
                         _ => {}
                     },
@@ -1307,6 +1581,83 @@ fn main_loop<B: ratatui::backend::Backend>(
                         }
                         _ => {}
                     },
+
+                    ViewMode::PreviewModal => match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                            view_mode = ViewMode::Browsing;
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            let max_scroll = preview_lines.len().saturating_sub(1);
+                            modal_scroll = (modal_scroll + 1).min(max_scroll);
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            modal_scroll = modal_scroll.saturating_sub(1);
+                        }
+                        KeyCode::PageDown => {
+                            let max_scroll = preview_lines.len().saturating_sub(1);
+                            modal_scroll = (modal_scroll + 10).min(max_scroll);
+                        }
+                        KeyCode::PageUp => {
+                            modal_scroll = modal_scroll.saturating_sub(10);
+                        }
+                        KeyCode::Home | KeyCode::Char('g') => {
+                            modal_scroll = 0;
+                        }
+                        KeyCode::End | KeyCode::Char('G') => {
+                            let max_scroll = preview_lines.len().saturating_sub(1);
+                            modal_scroll = max_scroll;
+                        }
+                        KeyCode::Char('o') => {
+                            if let Some(idx) = table_state.selected() {
+                                if let Some(entry) = entries.get(idx) {
+                                    let opener = std::env::var("VIEWER").unwrap_or_else(|_| "xdg-open".into());
+                                    match std::process::Command::new(&opener)
+                                        .arg(&entry.vault_path)
+                                        .stdin(std::process::Stdio::null())
+                                        .stdout(std::process::Stdio::null())
+                                        .stderr(std::process::Stdio::null())
+                                        .spawn()
+                                    {
+                                        Ok(_) => {
+                                            status_message = Some(format!("Launched '{}' via {}", entry.filename, opener));
+                                        }
+                                        Err(e) => {
+                                            status_message = Some(format!("Failed to open: {}", e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    ViewMode::DiffModal => match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                            view_mode = ViewMode::Browsing;
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            let max_scroll = diff_lines.len().saturating_sub(1);
+                            modal_scroll = (modal_scroll + 1).min(max_scroll);
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            modal_scroll = modal_scroll.saturating_sub(1);
+                        }
+                        KeyCode::PageDown => {
+                            let max_scroll = diff_lines.len().saturating_sub(1);
+                            modal_scroll = (modal_scroll + 10).min(max_scroll);
+                        }
+                        KeyCode::PageUp => {
+                            modal_scroll = modal_scroll.saturating_sub(10);
+                        }
+                        KeyCode::Home | KeyCode::Char('g') => {
+                            modal_scroll = 0;
+                        }
+                        KeyCode::End | KeyCode::Char('G') => {
+                            let max_scroll = diff_lines.len().saturating_sub(1);
+                            modal_scroll = max_scroll;
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
@@ -1324,6 +1675,12 @@ fn execute_action(
     history_table_state: &mut TableState,
     view_mode: &mut ViewMode,
     status_message: &mut Option<String>,
+    modal_scroll: &mut usize,
+    preview_title: &mut String,
+    preview_lines: &mut Vec<Line<'static>>,
+    diff_title: &mut String,
+    diff_lines: &mut Vec<Line<'static>>,
+    theme: &crate::theme::Theme,
     db: &Db,
 ) {
     let sel = match table_state.selected() {
@@ -1374,15 +1731,57 @@ fn execute_action(
             *view_mode = ViewMode::Browsing;
         }
         2 => {
-            // 3. Metadata
-            *view_mode = ViewMode::InspectModal;
+            // 3. Preview / Inspect content
+            let content = crate::preview::generate_preview(&entry, theme);
+            *preview_title = format!("Preview: {} ({})", entry.filename, content.category);
+            *preview_lines = content.lines;
+            *modal_scroll = 0;
+            *view_mode = ViewMode::PreviewModal;
         }
         3 => {
-            // 4. Delete permanently (prompt confirmation first)
-            *view_mode = ViewMode::ConfirmDeleteModal;
+            // 4. Open in default app (xdg-open)
+            let opener = std::env::var("VIEWER").unwrap_or_else(|_| "xdg-open".into());
+            match std::process::Command::new(&opener)
+                .arg(&entry.vault_path)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(_) => {
+                    *status_message = Some(format!("Launched '{}' via {}", entry.filename, opener));
+                }
+                Err(e) => {
+                    *status_message = Some(format!("Failed to open: {}", e));
+                }
+            }
+            *view_mode = ViewMode::Browsing;
         }
         4 => {
-            // 5. Copy path via OSC 52
+            // 5. Diff against current file
+            match crate::preview::generate_diff(&entry, theme) {
+                Ok(lines) => {
+                    *diff_title = format!("Diff: {} (storage vs current)", entry.filename);
+                    *diff_lines = lines;
+                    *modal_scroll = 0;
+                    *view_mode = ViewMode::DiffModal;
+                }
+                Err(err_msg) => {
+                    *status_message = Some(err_msg);
+                    *view_mode = ViewMode::Browsing;
+                }
+            }
+        }
+        5 => {
+            // 6. Metadata
+            *view_mode = ViewMode::InspectModal;
+        }
+        6 => {
+            // 7. Delete permanently
+            *view_mode = ViewMode::ConfirmDeleteModal;
+        }
+        7 => {
+            // 8. Copy path via OSC 52
             let b64 = base64_encode(&entry.original_path);
             let _ = execute!(std::io::stdout(), crossterm::style::Print(format!("\x1b]52;c;{}\x07", b64)));
             *status_message = Some(format!("Copied path to clipboard: {}", entry.original_path));

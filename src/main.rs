@@ -4,6 +4,7 @@ mod db;
 mod exclusion_cli;
 mod hasher;
 mod init;
+pub mod preview;
 mod restore;
 pub mod safety;
 mod syscalls;

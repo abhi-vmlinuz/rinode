@@ -121,9 +121,9 @@ rinode
   - `Tab` / `BackTab` or `h` / `l` (or arrow keys) toggle focus between Deleted Files and History.
   - `j` / `k` navigate rows within the active pane.
 - **Actions**:
-  - Press `Enter` on a deleted entry to open the action menu (Restore, Restore (keep copy), Metadata, Delete permanently, Copy path).
+  - Press `Enter` on a deleted entry to open the action menu (Restore, Restore (keep copy), Preview / Inspect content, Open in default app, Diff against current file, Metadata, Delete permanently, Copy path).
   - Press `Enter` on a file in history to inspect its metadata.
-  - Quick keys: `r` to restore, `x` to delete permanently, `t` to cycle themes, `e` to view active exclusion rules, `q` to exit.
+  - Quick keys: `r` to restore, `p` to preview content, `d` to diff against current file, `o` to open externally, `x` to delete permanently, `c` to copy path, `t` to cycle themes, `e` to view active exclusion rules, `q` to exit.
 
 <p align="center">
   <img src="assets/rinode_actions.png" alt="rinode Action Submenu and History" width="100%">
